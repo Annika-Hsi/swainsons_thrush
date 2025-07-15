@@ -1,0 +1,99 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var ndvi = ee.ImageCollection("MODIS/MYD09GA_006_NDVI"),
+    era5 = ee.ImageCollection("ECMWF/ERA5_LAND/DAILY_AGGR"),
+    wintering = ee.FeatureCollection("projects/ee-ah4287/assets/wintering_locs_depdates");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// var roi = ee.Geometry.Rectangle([[-130.07, -5.36], [-70.6, 56.05]]);
+// add roi to map
+// Map.addLayer(roi, {}, 'region of interest');
+
+// set data
+var loc_fc = wintering;
+
+// add to map
+Map.addLayer(loc_fc, {}, 'point locations');
+
+// create 5 km buffer around each point
+var buffer_fc = loc_fc.map(function(f) {
+  return ee.Feature(f.buffer(115000)); // from Justen paper
+});
+
+// print and add buffered points to map
+Map.addLayer(buffer_fc, {}, 'buffered locations');
+
+// convert to list
+var buffer_list = buffer_fc.toList(buffer_fc.size());
+var loc_list = loc_fc.toList(loc_fc.size());
+
+// list of indices to map over
+var idx = ee.List.sequence(0, loc_fc.size().subtract(1));
+
+// extract satellite + model data
+var data = idx.map(function(i) {
+  // conver to feature
+  var b = ee.Feature(buffer_list.get(i));
+  
+  // get geometry + date (I'm just hard coding it based on my R output)
+  var geom = b.geometry();
+  var dep_date = ee.Date(b.toDictionary(b.propertyNames()).values().get(0));
+  var dep_year = ee.Number(dep_date.get('year')).format();
+  var date = ee.Date(dep_year.cat('-03-03'));
+  
+  // filter to location
+  var sub_ndvi = ndvi
+    .filterDate(date.advance(-184, 'days'), dep_date.advance(1, 'days'))
+    .filterBounds(geom)
+    .map(function(img) {return img.clip(geom)})
+    .select(['NDVI']);
+  var sub_era5 = era5
+    .filterDate(date.advance(-184, 'days'), dep_date.advance(1, 'days'))
+    .filterBounds(geom)
+    .map(function(img) {return img.clip(geom)})
+    .select(['temperature_2m', 'total_precipitation_sum', 'u_component_of_wind_10m', 'v_component_of_wind_10m']);
+    
+  // get ID and coordinates to store in features
+  var curr_entry = ee.Feature(loc_list.get(i));
+  var coords = curr_entry.geometry().coordinates();
+  var lat = coords.get(1);
+  var lon = coords.get(0);
+  var id = curr_entry.toDictionary(curr_entry.propertyNames()).values().get(2);
+
+  // median over location
+  
+  // uncomment for MODIS NDVI data
+  // var med_ndvi = sub_ndvi.map(function(img) {
+  //   return ee.Feature(geom, {'ID': id, 'lat': lat, 'lon': lon, 'date': img.date(), 'ndvi': img.reduceRegion({
+  //     reducer: ee.Reducer.median(), // can change to mean
+  //     geometry: geom,
+  //     scale: 1000,
+  //     maxPixels: 1e13
+  //   }).select(['NDVI']).get('NDVI')})
+  // });
+  // return med_ndvi
+  
+  // uncomment for ERA5 data
+  var med_era5 = sub_era5.map(function(img) {
+    var med = img.reduceRegion({
+      reducer: ee.Reducer.median(), // can change to mean
+      geometry: geom,
+      scale: 1000,
+      maxPixels: 1e13
+    });
+    return ee.Feature(geom, {'ID': id, 'lat': lat, 'lon': lon, 'date': img.date(),
+    'temp_2m': med.select(['temperature_2m']).get('temperature_2m'), 
+    'total_precip': med.select(['total_precipitation_sum']).get('total_precipitation_sum'), 
+    'u_wind': med.select(['u_component_of_wind_10m']).get('u_component_of_wind_10m'), 
+    'v_wind': med.select(['v_component_of_wind_10m']).get('v_component_of_wind_10m')});
+  });
+  return med_era5
+
+});
+
+print(data.get(0));
+
+Export.table.toDrive({
+  collection: ee.FeatureCollection(data).flatten(),
+  description: 'wintering_data_download',
+  folder: 'clim_wintering', // change this depending on what you're exporting
+  fileFormat: 'CSV'
+  });
