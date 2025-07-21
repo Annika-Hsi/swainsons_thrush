@@ -1,19 +1,21 @@
-
 # PURPOSE: run climwin sliding window on environmental data from Google Earth 
 # Engine corresponding to Swainson's Thrush observations from the wintering and
 # breeding seasons
 # NOTES: have to remerge with original LLG dataset to get release site as covariate
 # also there was a MODIS outage in April 2024 so have to remove some entries
-# ISSUES: 'cohort' argument being ignored and still working on checking if best 
-# models are overfitting since adj R^2 values are very close to 1
+# ISSUES: cross validation does not always work because some release sites have 
+# very few entries--just rerun until it does not give error
 
+# load packages
 library(dplyr)
 library(climwin)
 library(tidyr)
 library(lubridate)
+library(caret)
+library(car)
 
 # SET UP------------------------------------------------------------------------
-# WINTERING
+
 # load data
 llg_env_land <- read.csv('data/llg_env_land.csv')
 ndvi <- read.csv('env_data/gee/NDVI_wintering.csv')
@@ -34,10 +36,10 @@ llg_orig <- llg_orig |>
 # merge with data that has land coordinates
 llg_merged <- merge(x = llg_land, y = llg_orig, by = c('release_GPS.N', 'release_GPS.W', 'wintering_lat', 'wintering_long'))
 
-# convert all dates and check the duplicate columns all match
+# convert all dates and check the duplicate columns all match 
 llg_merged$release_date.x <- as.Date(llg_merged$release_date.x, '%Y-%m-%d')
 llg_merged$release_date.y <- as.Date(llg_merged$release_date.y, '%m/%d/%y')
-sum(llg_merged$release_date.x != llg_merged$release_date.y)
+sum(llg_merged$release_date.x != llg_merged$release_date.y) # should be 0
 
 llg_merged$spring_dep_new.x <- as.Date(llg_merged$spring_dep_new.x, '%Y-%m-%d')
 llg_merged$spring_dep_new.y <- as.Date(llg_merged$spring_dep_new.y, '%m/%d/%Y')
@@ -51,7 +53,13 @@ sum(llg_merged$fall_dep_new.x != llg_merged$fall_dep_new.y, na.rm = TRUE)
 colnames(llg_merged)
 llg_sub <- llg_merged[, c(1:10, 12)]
 
-# TEST ON WINTERING NDVI--------------------------------------------------------
+llg_sub$release_site <- (llg_sub |> 
+                           mutate(release_site_comb = case_when(release_site == 'Pacific Spirit' ~ 'Porpoise Bay',
+                                                                release_site == 'Northern_BC' ~ 'Alaska',
+                                                                ((release_site != 'Pacific Spirit') & (release_site != 'Northern_BC')) ~ release_site
+                           )))$release_site_comb
+
+# WINTERING NDVI----------------------------------------------------------------
 
 # get wintering data
 llg_w <- llg_sub |> select('ID', 'wintering_lat', 'wintering_long', 'spring_dep_new.x', 'land_coords.lat_w', 'land_coords.lon_w', 'release_site')
@@ -72,9 +80,6 @@ ndvi_w <- ndvi_merged_clean |> select('date', 'ndvi', 'ID', 'release_site')
 # convert dates
 ndvi_w$date <- as.Date(ndvi_w$date)
 
-# add cohort
-dep_w$cohort <- year(dep_w$spring_dep_new.x)
-
 # save IDs of birds with missing data
 missing_birds <- (ndvi_merged_clean |>
                     group_by(ID, spring_dep_new.x) |>
@@ -92,12 +97,12 @@ ndvi_w_clean <- ndvi_w |> filter(!(ID %in% missing_birds))
 
 # sliding window over 4 months
 ndvi_w_window <- slidingwin(xvar = list(NDVI = ndvi_w_clean$ndvi),
+                            k = 3,
                             cdate = ndvi_w_clean$date,
                             bdate = dep_w_clean$spring_dep_new.x,
-                            baseline = lm(as.numeric(spring_dep_new.x) ~ release_site + cohort, data = dep_w_clean), # I'm confused on how to incorporate release site as a covariate...
+                            baseline = lm(as.numeric(spring_dep_new.x) ~ release_site, data = dep_w_clean), # I'm confused on how to incorporate release site as a covariate...
                             cinterval = "day",
                             cmissing = 'method1',
-                            #cohort = dep_w_clean$cohort,
                             range = c(120, 0),
                             type = "absolute", refday = c(03, 03),
                             stat = "mean",
@@ -106,8 +111,59 @@ ndvi_w_window <- slidingwin(xvar = list(NDVI = ndvi_w_clean$ndvi),
 
 # examine model
 summary(ndvi_w_window[[1]]$BestModel)
+vif(ndvi_w_mod)
 
-# TEST ON WINTERING CLIMATE DATA------------------------------------------------
+# function to extract and plot best data
+window_plot <- function(window, varname, type) {
+  # extract best data for plots
+  bestdata <- window[[1]]$BestModelData
+  bestdata$yvar <- as.Date(bestdata$yvar, origin = '1970-01-01')
+  bestdata$yvar |> yday()
+  
+  # faceted plot
+  if (type == 'facet year') {
+    plot <- ggplot(bestdata, aes(x = yvar, y = climate)) +
+      geom_point() +
+      facet_wrap(as.factor(year(yvar))~., scales = 'free') +
+      labs(x = 'Departure Date',
+           y = varname,
+           title = paste0(varname,' vs. Departure Date',' by Year')) +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  }
+  if (type == 'facet site') {
+    plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate)) +
+      geom_point() +
+      facet_wrap(release_site~., scales = 'free') +
+      labs(x = 'Departure Day of Year',
+           y = varname,
+           title = paste0(varname,' vs. Departure Day of Year',' by Release Site'))
+  }
+  if (type == 'year') {
+    plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate, color = as.factor(year(yvar)))) +
+      geom_point() +
+      labs(x = 'Departure Day of Year',
+           y = varname,
+           title = paste0(varname,' vs. Departure Day of Year')) +
+      scale_color_discrete(name = 'Year')
+  }
+  if (type == 'site') {
+    plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate, color = release_site)) +
+      geom_point() +
+      labs(x = 'Departure Day of Year',
+           y = varname,
+           title = paste0(varname,' vs. Departure Day of Year')) +
+      scale_color_discrete(name = 'Release Site')
+  }
+  return(plot)
+}
+
+# plots
+window_plot(ndvi_w_window, 'NDVI', 'facet year')
+window_plot(ndvi_w_window, 'NDVI', 'facet site')
+window_plot(ndvi_w_window, 'NDVI', 'year')
+window_plot(ndvi_w_window, 'NDVI', 'site')
+
+# WINTERING CLIMATE DATA--------------------------------------------------------
 # i.e., precipitation, wind speed, temperature
 
 # merge with climate data so we have release site 
@@ -118,14 +174,11 @@ clim_merged_clean <- clim_merged |> select('ID', 'spring_dep_new.x', 'lat_w', 'l
 clim_merged_clean <- clim_merged_clean |> mutate(wind_speed = sqrt(u_wind^2 + v_wind^2))
 
 # split into datasets for sliding window
-dep_w <- llg_w |> select('spring_dep_new.x', 'ID', 'release_site') |> filter(!is.na(spring_dep_new.x))
+#dep_w <- llg_w |> select('spring_dep_new.x', 'ID', 'release_site') |> filter(!is.na(spring_dep_new.x))
 clim_w <- clim_merged_clean |> select('date', 'temp_2m', 'total_precip', 'wind_speed', 'ID', 'release_site')
 
 # convert dates
 clim_w$date <- as.Date(clim_w$date)
-
-# add cohort
-dep_w$cohort <- as.factor(year(dep_w$spring_dep_new.x))
 
 # examine and remove NAs
 clim_w |> filter(is.na(temp_2m)) |> group_by(ID) |> summarise(n_rows = n())
@@ -133,28 +186,28 @@ missing_clim <- (clim_w |> filter(is.na(temp_2m)))$ID |> unique()
 clim_w_clean <- clim_w |> filter(!(ID %in% missing_clim))
 dep_w_clean2 <- dep_w |> filter(!(ID %in% missing_clim))
 
-# sliding window
+# sliding window over 6 months
 
 # temperature
 temp_w_window <- slidingwin(xvar = list(Temp = clim_w_clean$temp_2m),
+                            k = 3,
                             cdate = clim_w_clean$date,
                             bdate = dep_w_clean2$spring_dep_new.x,
-                            baseline = lm(as.numeric(spring_dep_new.x) ~ release_site + cohort, data = dep_w_clean2),
+                            baseline = lm(as.numeric(spring_dep_new.x) ~ release_site, data = dep_w_clean2),
                             cinterval = "day",
                             cmissing = 'method2',
-                            #cohort = dep_w_clean2$cohort,
                             range = c(184, 0),
                             type = "absolute", refday = c(03, 03),
                             stat = "mean",
                             func = "lin", spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
 # precipitation
 precip_w_window <- slidingwin(xvar = list(Precip = clim_w_clean$total_precip),
+                              k = 3,
                               cdate = clim_w_clean$date,
                               bdate = dep_w_clean2$spring_dep_new.x,
-                              baseline = lm(as.numeric(spring_dep_new.x) ~ release_site + cohort, data = dep_w_clean2),
+                              baseline = lm(as.numeric(spring_dep_new.x) ~ release_site, data = dep_w_clean2),
                               cinterval = "day",
                               cmissing = 'method1',
-                              #cohort = dep_w_clean2$cohort,
                               range = c(184, 0),
                               type = "absolute", refday = c(03, 03),
                               stat = "mean",
@@ -162,32 +215,53 @@ precip_w_window <- slidingwin(xvar = list(Precip = clim_w_clean$total_precip),
 
 # wind
 wind_w_window <- slidingwin(xvar = list(Wind = clim_w_clean$wind_speed),
+                            k = 3,
                             cdate = clim_w_clean$date,
                             bdate = dep_w_clean2$spring_dep_new.x,
-                            baseline = lm(as.numeric(spring_dep_new.x) ~ release_site + cohort, data = dep_w_clean2),
+                            baseline = lm(as.numeric(spring_dep_new.x) ~ release_site, data = dep_w_clean2),
                             cinterval = "day",
                             cmissing = 'method1',
-                            #cohort = dep_w_clean2$cohort,
                             range = c(184, 0),
                             type = "absolute", refday = c(03, 03),
                             stat = "mean",
                             func = "lin", spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
 
 # examine models
+summary(temp_w_window[[1]]$BestModel)
 summary(precip_w_window[[1]]$BestModel)
 summary(wind_w_window[[1]]$BestModel)
-summary(temp_w_window[[1]]$BestModel)
+
+vif(temp_w_window[[1]]$BestModel)
+vif(precip_w_window[[1]]$BestModel)
+vif(wind_w_window[[1]]$BestModel)
+
+# plots
+window_plot(temp_w_window, 'Temperature', 'facet year')
+window_plot(temp_w_window, 'Temperature', 'facet site')
+window_plot(temp_w_window, 'Temperature', 'year')
+window_plot(temp_w_window, 'Temperature', 'site')
+window_plot(precip_w_window, 'Precipitation', 'facet year')
+window_plot(precip_w_window, 'Precipitation', 'facet site')
+window_plot(precip_w_window, 'Precipitation', 'year')
+window_plot(precip_w_window, 'Precipitation', 'site')
+window_plot(wind_w_window, 'Wind Speed', 'facet year')
+window_plot(wind_w_window, 'Wind Speed', 'facet site')
+window_plot(wind_w_window, 'Wind Speed', 'year')
+window_plot(wind_w_window, 'Wind Speed', 'site')
 
 # BREEDING SEASON DATA----------------------------------------------------------
 # update gee data to breeding season
 ndvi <- read.csv('env_data/gee/NDVI_breeding.csv')
 clim <- read.csv('env_data/gee/clim_breeding.csv')
 
-# NDVI DATA---------------------------------------------------------------------
+# BREEDING NDVI ----------------------------------------------------------------
 # examine data
+
+# number of unique birds
 ndvi$ID |> unique() |> length()
 clim$ID |> unique() |> length()
 
+# minimum and maximum number of observations per bird
 (ndvi |> group_by(ID) |> summarise(n_rows = n()))$n_rows |> max()
 (ndvi |> group_by(ID) |> summarise(n_rows = n()))$n_rows |> min()
 
@@ -208,9 +282,6 @@ ndvi_b <- ndvi_merged_clean |> select('date', 'ndvi', 'ID', 'release_site')
 # convert dates
 ndvi_b$date <- as.Date(ndvi_b$date)
 
-# add cohort
-dep_b$cohort <- year(dep_b$fall_dep_new.x)
-
 # figure out reference dep date using earliest departure
 (dep_b |> 
     mutate(new_date = as.Date(paste0(month(fall_dep_new.x), '-', day(fall_dep_new.x), '-2018'), '%m-%d-%Y')))$new_date |> min() 
@@ -218,12 +289,12 @@ dep_b$cohort <- year(dep_b$fall_dep_new.x)
 
 # sliding window over 4 months
 ndvi_b_window <- slidingwin(xvar = list(NDVI = ndvi_b$ndvi),
+                            k = 3,
                             cdate = ndvi_b$date,
                             bdate = dep_b$fall_dep_new.x,
-                            baseline = lm(as.numeric(fall_dep_new.x) ~ release_site + cohort, data = dep_b), # I'm confused on how to incorporate release site as a covariate...
+                            baseline = lm(as.numeric(fall_dep_new.x) ~ release_site, data = dep_b), # I'm confused on how to incorporate release site as a covariate...
                             cinterval = "day",
                             cmissing = 'method1',
-                            #cohort = dep_b$cohort,
                             range = c(184, 0),
                             type = "absolute", refday = c(18, 07),
                             stat = "mean",
@@ -231,8 +302,15 @@ ndvi_b_window <- slidingwin(xvar = list(NDVI = ndvi_b$ndvi),
 
 # examine model
 summary(ndvi_b_window[[1]]$BestModel)
+vif(ndvi_b_window[[1]]$BestModel)
 
-# CLIMATE DATA------------------------------------------------------------------
+# plots
+window_plot(ndvi_b_window, 'NDVI', 'facet year')
+window_plot(ndvi_b_window, 'NDVI', 'facet site')
+window_plot(ndvi_b_window, 'NDVI', 'year')
+window_plot(ndvi_b_window, 'NDVI', 'site')
+
+# BREEDING CLIMATE DATA---------------------------------------------------------
 # merge with climate data so we have release site 
 clim_merged <- merge(x = llg_b, y = clim, by = c('ID'), all.x = FALSE)
 clim_merged_clean <- clim_merged |> select('ID', 'fall_dep_new.x', 'lat', 'lon', 'date', 'temp_2m', 'total_precip', 'u_wind', 'v_wind', 'release_site')
@@ -241,58 +319,73 @@ clim_merged_clean <- clim_merged |> select('ID', 'fall_dep_new.x', 'lat', 'lon',
 clim_merged_clean <- clim_merged_clean |> mutate(wind_speed = sqrt(u_wind^2 + v_wind^2))
 
 # split into datasets for sliding window
-dep_b <- llg_b |> select('fall_dep_new.x', 'ID', 'release_site') |> filter(!is.na(fall_dep_new.x))
+#dep_b <- llg_b |> select('fall_dep_new.x', 'ID', 'release_site') |> filter(!is.na(fall_dep_new.x))
 clim_b <- clim_merged_clean |> select('date', 'temp_2m', 'total_precip', 'wind_speed', 'ID', 'release_site')
 
 # convert dates
 clim_b$date <- as.Date(clim_b$date)
 
-# add cohort
-dep_b$cohort <- as.factor(year(dep_b$fall_dep_new.x))
-
 # sliding window
 
 # temperature
-temp_b_window <- slidingwin(xvar = list(Temp = clim_b$temp_2m),
+temp_b_window <- slidingwin(xvar = list(Temp = clim_b$temp_2m, Precip = clim_b$total_precip),
+                            k = 3,
                             cdate = clim_b$date,
                             bdate = dep_b$fall_dep_new.x,
-                            baseline = lm(as.numeric(fall_dep_new.x) ~ release_site + cohort, data = dep_b),
+                            baseline = lm(as.numeric(fall_dep_new.x) ~ release_site, data = dep_b),
                             cinterval = "day",
                             cmissing = 'method2',
-                            #cohort = dep_b$cohort,
                             range = c(184, 0),
                             type = "absolute", refday = c(18, 07),
                             stat = "mean",
                             func = "lin", spatial = list(dep_b$ID, clim_b$ID))
 
 # precipitation
-precip_b_window <- slidingwin(xvar = list(Temp = clim_b$total_precip),
+precip_b_window <- slidingwin(xvar = list(Precip = clim_b$total_precip),
+                              k = 3,
                               cdate = clim_b$date,
                               bdate = dep_b$fall_dep_new.x,
-                              baseline = lm(as.numeric(fall_dep_new.x) ~ release_site + cohort, data = dep_b),
+                              baseline = lm(as.numeric(fall_dep_new.x) ~ release_site, data = dep_b),
                               cinterval = "day",
                               cmissing = 'method2',
-                              #cohort = dep_b$cohort,
                               range = c(184, 0),
                               type = "absolute", refday = c(18, 07),
                               stat = "mean",
                               func = "lin", spatial = list(dep_b$ID, clim_b$ID))
 
 # wind
-wind_b_window <- slidingwin(xvar = list(Temp = clim_b$wind_speed),
+wind_b_window <- slidingwin(xvar = list(Wind = clim_b$wind_speed),
+                            k = 3,
                             cdate = clim_b$date,
                             bdate = dep_b$fall_dep_new.x,
-                            baseline = lm(as.numeric(fall_dep_new.x) ~ release_site + cohort, data = dep_b),
+                            baseline = lm(as.numeric(fall_dep_new.x) ~ release_site, data = dep_b),
                             cinterval = "day",
                             cmissing = 'method2',
-                            #cohort = dep_b$cohort,
                             range = c(184, 0),
                             type = "absolute", refday = c(18, 07),
                             stat = "mean",
                             func = "lin", spatial = list(dep_b$ID, clim_b$ID))
 
 # examine models
+summary(temp_b_window[[1]]$BestModel)
 summary(precip_b_window[[1]]$BestModel)
 summary(wind_b_window[[1]]$BestModel)
-summary(temp_b_window[[1]]$BestModel)
+
+vif(temp_b_window[[1]]$BestModel)
+vif(precip_b_window[[1]]$BestModel)
+vif(wind_b_window[[1]]$BestModel)
+
+# plots
+window_plot(temp_b_window, 'Temperature', 'facet year')
+window_plot(temp_b_window, 'Temperature', 'facet site')
+window_plot(temp_b_window, 'Temperature', 'year')
+window_plot(temp_b_window, 'Temperature', 'site')
+window_plot(precip_b_window, 'Precipitation', 'facet year')
+window_plot(precip_b_window, 'Precipitation', 'facet site')
+window_plot(precip_b_window, 'Precipitation', 'year')
+window_plot(precip_b_window, 'Precipitation', 'site')
+window_plot(wind_b_window, 'Wind Speed', 'facet year')
+window_plot(wind_b_window, 'Wind Speed', 'facet site')
+window_plot(wind_b_window, 'Wind Speed', 'year')
+window_plot(wind_b_window, 'Wind Speed', 'site')
 
