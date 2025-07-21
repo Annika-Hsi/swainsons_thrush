@@ -1,7 +1,7 @@
 # PURPOSE: run climwin sliding window on environmental data from Google Earth 
 # Engine corresponding to Swainson's Thrush observations from the wintering and
 # breeding seasons
-# NOTES: have to remerge with original LLG dataset to get release site as covariate
+# NOTES: have to remerge with original LLG dataset to get release site as covariate;
 # also there was a MODIS outage in April 2024 so have to remove some entries
 # ISSUES: cross validation does not always work because some release sites have 
 # very few entries--just rerun until it does not give error
