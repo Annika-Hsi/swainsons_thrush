@@ -1,7 +1,8 @@
+
 # PURPOSE: run climwin sliding window on environmental data from Google Earth 
 # Engine corresponding to Swainson's Thrush observations from the wintering and
 # breeding seasons
-# NOTES: have to remerge with original LLG dataset to get release site as covariate;
+# NOTES: have to remerge with original LLG dataset to get release site as covariate
 # also there was a MODIS outage in April 2024 so have to remove some entries
 # ISSUES: cross validation does not always work because some release sites have 
 # very few entries--just rerun until it does not give error
@@ -13,9 +14,10 @@ library(tidyr)
 library(lubridate)
 library(caret)
 library(car)
+library(geosphere)
 
 # SET UP------------------------------------------------------------------------
-
+# WINTERING
 # load data
 llg_env_land <- read.csv('data/llg_env_land.csv')
 ndvi <- read.csv('env_data/gee/NDVI_wintering.csv')
@@ -110,7 +112,8 @@ ndvi_w_window <- slidingwin(xvar = list(NDVI = ndvi_w_clean$ndvi),
                             spatial = list(dep_w_clean$ID, ndvi_w_clean$ID))
 
 # examine model
-summary(ndvi_w_window[[1]]$BestModel)
+ndvi_w_mod <- ndvi_w_window[[1]]$BestModel
+summary(ndvi_w_mod)
 vif(ndvi_w_mod)
 
 # function to extract and plot best data
@@ -174,7 +177,7 @@ clim_merged_clean <- clim_merged |> select('ID', 'spring_dep_new.x', 'lat_w', 'l
 clim_merged_clean <- clim_merged_clean |> mutate(wind_speed = sqrt(u_wind^2 + v_wind^2))
 
 # split into datasets for sliding window
-#dep_w <- llg_w |> select('spring_dep_new.x', 'ID', 'release_site') |> filter(!is.na(spring_dep_new.x))
+dep_w <- llg_w |> select('spring_dep_new.x', 'ID', 'release_site') |> filter(!is.na(spring_dep_new.x))
 clim_w <- clim_merged_clean |> select('date', 'temp_2m', 'total_precip', 'wind_speed', 'ID', 'release_site')
 
 # convert dates
@@ -186,7 +189,7 @@ missing_clim <- (clim_w |> filter(is.na(temp_2m)))$ID |> unique()
 clim_w_clean <- clim_w |> filter(!(ID %in% missing_clim))
 dep_w_clean2 <- dep_w |> filter(!(ID %in% missing_clim))
 
-# sliding window over 6 months
+# sliding window
 
 # temperature
 temp_w_window <- slidingwin(xvar = list(Temp = clim_w_clean$temp_2m),
@@ -227,11 +230,11 @@ wind_w_window <- slidingwin(xvar = list(Wind = clim_w_clean$wind_speed),
                             func = "lin", spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
 
 # examine models
-summary(temp_w_window[[1]]$BestModel)
+summary(temp_w_window[[1]]$BestModel) 
 summary(precip_w_window[[1]]$BestModel)
 summary(wind_w_window[[1]]$BestModel)
 
-vif(temp_w_window[[1]]$BestModel)
+vif(temp_w_window[[1]]$BestModel) 
 vif(precip_w_window[[1]]$BestModel)
 vif(wind_w_window[[1]]$BestModel)
 
@@ -249,12 +252,80 @@ window_plot(wind_w_window, 'Wind Speed', 'facet site')
 window_plot(wind_w_window, 'Wind Speed', 'year')
 window_plot(wind_w_window, 'Wind Speed', 'site')
 
+# WINTERING DAYLENGTH-----------------------------------------------------------
+# get rid of any rows missing lat or date
+llg_w_clean <- llg_w |> 
+  filter((!is.na(spring_dep_new.x)) & !is.na(lat_w)) |> 
+  arrange(ID)
+
+# figure out latest day of year departure
+max_dt <- (llg_w_clean |> mutate(doy = yday(spring_dep_new.x)) |> arrange(-doy))[1, ]$spring_dep_new.x
+
+# figure out 185 days back from earliest departure date (March 3rd)
+as.Date('2018-03-03') - 185
+
+# function to get sequence of dates from each departure date
+get_all_dts_w <- function(dt) {
+  yr <- year(dt)
+  return(seq.Date(from = dt, to = (as.Date(paste0(yr, '-03-03'), '%Y-%m-%d')-185), by = '-1 days'))
+}
+
+all_dts <- lapply(llg_w_clean$spring_dep_new.x, get_all_dts_w)
+
+# convert list of lists to one long data frame labeled by ID
+dts_df <- data.frame(matrix(nrow = 0, ncol = 2))
+colnames(dts_df) <- c('date', 'ID')
+for (i in 1:nrow(llg_w_clean)) {
+  curr_id <- llg_w_clean$ID[i]
+  curr_list <- all_dts[[i]]
+  df <- data.frame(date = curr_list)
+  df$ID <- curr_id
+  dts_df <- rbind(dts_df, df)
+}
+
+# check number of rows per bird look correct
+(dts_df |> group_by(ID) |> 
+    summarise(nrow = n()))$nrow |> range()
+
+# append dates
+llg_dts_w <- merge(x = llg_w_clean, y = dts_df, by = 'ID', all.y = TRUE)
+
+# extract photoperiod
+llg_dts_w <- llg_dts_w |> mutate(daylen = daylength(lat_w, date))
+
+# split into 2 data frames
+daylen_w <- llg_dts_w |> select('ID', 'release_site', 'date', 'daylen')
+dep_daylen_w <- llg_dts_w |> select('ID', 'release_site', 'spring_dep_new.x')
+
+# run sliding window
+daylen_w_window <- slidingwin(xvar = list(Daylength = daylen_w$daylen),
+                              k = 3,
+                              cdate = daylen_w$date,
+                              bdate = dep_daylen_w$spring_dep_new.x,
+                              baseline = lm(as.numeric(spring_dep_new.x) ~ release_site, data = dep_daylen_w),
+                              cinterval = "day",
+                              cmissing = 'method2',
+                              range = c(184, 0),
+                              type = "absolute", refday = c(03, 03),
+                              stat = "mean",
+                              func = "lin", spatial = list(dep_daylen_w$ID, daylen_w$ID))
+
+# examine models
+summary(daylen_w_window[[1]]$BestModel)
+vif(daylen_w_window[[1]]$BestModel)
+
+# plots
+window_plot(daylen_w_window, 'Day Length', 'facet year')
+window_plot(daylen_w_window, 'Day Length', 'facet site')
+window_plot(daylen_w_window, 'Day Length', 'year')
+window_plot(daylen_w_window, 'Day Length', 'site')
+
 # BREEDING SEASON DATA----------------------------------------------------------
 # update gee data to breeding season
 ndvi <- read.csv('env_data/gee/NDVI_breeding.csv')
 clim <- read.csv('env_data/gee/clim_breeding.csv')
 
-# BREEDING NDVI ----------------------------------------------------------------
+# BREEDING NDVI-----------------------------------------------------------------
 # examine data
 
 # number of unique birds
@@ -301,7 +372,7 @@ ndvi_b_window <- slidingwin(xvar = list(NDVI = ndvi_b$ndvi),
                             func = "lin", spatial = list(dep_b$ID, ndvi_b$ID))
 
 # examine model
-summary(ndvi_b_window[[1]]$BestModel)
+summary(ndvi_b_window[[1]]$BestModel) 
 vif(ndvi_b_window[[1]]$BestModel)
 
 # plots
@@ -319,7 +390,7 @@ clim_merged_clean <- clim_merged |> select('ID', 'fall_dep_new.x', 'lat', 'lon',
 clim_merged_clean <- clim_merged_clean |> mutate(wind_speed = sqrt(u_wind^2 + v_wind^2))
 
 # split into datasets for sliding window
-#dep_b <- llg_b |> select('fall_dep_new.x', 'ID', 'release_site') |> filter(!is.na(fall_dep_new.x))
+dep_b <- llg_b |> select('fall_dep_new.x', 'ID', 'release_site') |> filter(!is.na(fall_dep_new.x))
 clim_b <- clim_merged_clean |> select('date', 'temp_2m', 'total_precip', 'wind_speed', 'ID', 'release_site')
 
 # convert dates
@@ -389,3 +460,71 @@ window_plot(wind_b_window, 'Wind Speed', 'facet site')
 window_plot(wind_b_window, 'Wind Speed', 'year')
 window_plot(wind_b_window, 'Wind Speed', 'site')
 
+# BREEDING DAYLENGTH------------------------------------------------------------
+# get rid of any rows missing lat or date
+llg_b_clean <- llg_b |> 
+  filter((!is.na(fall_dep_new.x)) & !is.na(release_GPS.N)) |> 
+  arrange(ID)
+
+# figure out latest day of year departure
+max_dt <- (llg_b_clean |> mutate(doy = yday(fall_dep_new.x)) |> arrange(-doy))[1, ]$fall_dep_new.x
+
+# figure out 185 days back from earliest departure date (March 3rd)
+as.Date('2018-07-18') - 185
+
+# function to get sequence of dates from each departure date
+get_all_dts_b <- function(dt) {
+  yr <- year(dt)
+  return(seq.Date(from = dt, to = (as.Date(paste0(yr, '-07-18'), '%Y-%m-%d')-185), by = '-1 days'))
+}
+
+all_dts <- lapply(llg_b_clean$fall_dep_new.x, get_all_dts_b)
+
+# convert list of lists to one long data frame labeled by ID
+dts_df <- data.frame(matrix(nrow = 0, ncol = 2))
+colnames(dts_df) <- c('date', 'ID')
+for (i in 1:nrow(llg_b_clean)) {
+  curr_id <- llg_b_clean$ID[i]
+  curr_list <- all_dts[[i]]
+  df <- data.frame(date = curr_list)
+  df$ID <- curr_id
+  dts_df <- rbind(dts_df, df)
+}
+
+# check number of rows per bird look correct
+(dts_df |> group_by(ID) |> 
+    summarise(nrow = n()))$nrow |> range()
+
+# append dates
+llg_dts_b <- merge(x = llg_b_clean, y = dts_df, by = 'ID', all.y = TRUE)
+
+# extract photoperiod
+llg_dts_b <- llg_dts_b |> mutate(daylen = daylength(release_GPS.N, date))
+
+# split into 2 data frames
+daylen_b <- llg_dts_b |> select('ID', 'release_site', 'date', 'daylen')
+dep_daylen_b <- llg_dts_b |> select('ID', 'release_site', 'fall_dep_new.x')
+
+# run sliding window
+daylen_b_window <- slidingwin(xvar = list(Daylength = daylen_b$daylen),
+                              k = 3,
+                              cdate = daylen_b$date,
+                              bdate = dep_daylen_b$fall_dep_new.x,
+                              baseline = lm(as.numeric(fall_dep_new.x) ~ release_site, data = dep_daylen_b),
+                              cinterval = "day",
+                              cmissing = 'method2',
+                              range = c(184, 0),
+                              type = "absolute", refday = c(18, 07),
+                              stat = "mean",
+                              func = "lin", spatial = list(dep_daylen_b$ID, daylen_b$ID))
+
+# examine model
+daylen_b_window
+summary(daylen_b_window[[1]]$BestModel)
+vif(daylen_b_window[[1]]$BestModel) # high multicollinearity
+
+# plots
+window_plot(daylen_b_window, 'Day Length', 'facet year')
+window_plot(daylen_b_window, 'Day Length', 'facet site')
+window_plot(daylen_b_window, 'Day Length', 'year')
+window_plot(daylen_b_window, 'Day Length', 'site')
