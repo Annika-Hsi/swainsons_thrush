@@ -399,7 +399,7 @@ clim_b$date <- as.Date(clim_b$date)
 # sliding window
 
 # temperature
-temp_b_window <- slidingwin(xvar = list(Temp = clim_b$temp_2m, Precip = clim_b$total_precip),
+temp_b_window <- slidingwin(xvar = list(Temp = clim_b$temp_2m),
                             k = 3,
                             cdate = clim_b$date,
                             bdate = dep_b$fall_dep_new.x,
