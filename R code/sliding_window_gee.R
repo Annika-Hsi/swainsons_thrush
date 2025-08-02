@@ -98,6 +98,7 @@ ndvi_w_clean <- ndvi_w |> filter(!(ID %in% missing_birds))
 # N.B. I just picked a random year (2018) bc I needed to average the dates as if they were all the same year
 
 # sliding window over 4 months
+set.seed(123)
 ndvi_w_window <- slidingwin(xvar = list(NDVI = ndvi_w_clean$ndvi),
                             k = 3,
                             cdate = ndvi_w_clean$date,
@@ -192,6 +193,7 @@ dep_w_clean2 <- dep_w |> filter(!(ID %in% missing_clim))
 # sliding window
 
 # temperature
+set.seed(123)
 temp_w_window <- slidingwin(xvar = list(Temp = clim_w_clean$temp_2m),
                             k = 3,
                             cdate = clim_w_clean$date,
@@ -204,6 +206,7 @@ temp_w_window <- slidingwin(xvar = list(Temp = clim_w_clean$temp_2m),
                             stat = "mean",
                             func = "lin", spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
 # precipitation
+set.seed(123)
 precip_w_window <- slidingwin(xvar = list(Precip = clim_w_clean$total_precip),
                               k = 3,
                               cdate = clim_w_clean$date,
@@ -217,6 +220,7 @@ precip_w_window <- slidingwin(xvar = list(Precip = clim_w_clean$total_precip),
                               func = "lin", spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
 
 # wind
+set.seed(123)
 wind_w_window <- slidingwin(xvar = list(Wind = clim_w_clean$wind_speed),
                             k = 3,
                             cdate = clim_w_clean$date,
@@ -298,6 +302,7 @@ daylen_w <- llg_dts_w |> select('ID', 'release_site', 'date', 'daylen')
 dep_daylen_w <- llg_dts_w |> select('ID', 'release_site', 'spring_dep_new.x')
 
 # run sliding window
+set.seed(123)
 daylen_w_window <- slidingwin(xvar = list(Daylength = daylen_w$daylen),
                               k = 3,
                               cdate = daylen_w$date,
@@ -359,6 +364,7 @@ ndvi_b$date <- as.Date(ndvi_b$date)
 # N.B. I just picked a random year (2018) bc I needed to average the dates as if they were all the same year
 
 # sliding window over 4 months
+set.seed(123)
 ndvi_b_window <- slidingwin(xvar = list(NDVI = ndvi_b$ndvi),
                             k = 3,
                             cdate = ndvi_b$date,
@@ -399,6 +405,7 @@ clim_b$date <- as.Date(clim_b$date)
 # sliding window
 
 # temperature
+set.seed(123)
 temp_b_window <- slidingwin(xvar = list(Temp = clim_b$temp_2m),
                             k = 3,
                             cdate = clim_b$date,
@@ -412,6 +419,7 @@ temp_b_window <- slidingwin(xvar = list(Temp = clim_b$temp_2m),
                             func = "lin", spatial = list(dep_b$ID, clim_b$ID))
 
 # precipitation
+set.seed(123)
 precip_b_window <- slidingwin(xvar = list(Precip = clim_b$total_precip),
                               k = 3,
                               cdate = clim_b$date,
@@ -425,6 +433,7 @@ precip_b_window <- slidingwin(xvar = list(Precip = clim_b$total_precip),
                               func = "lin", spatial = list(dep_b$ID, clim_b$ID))
 
 # wind
+set.seed(123)
 wind_b_window <- slidingwin(xvar = list(Wind = clim_b$wind_speed),
                             k = 3,
                             cdate = clim_b$date,
@@ -506,6 +515,7 @@ daylen_b <- llg_dts_b |> select('ID', 'release_site', 'date', 'daylen')
 dep_daylen_b <- llg_dts_b |> select('ID', 'release_site', 'fall_dep_new.x')
 
 # run sliding window
+set.seed(123)
 daylen_b_window <- slidingwin(xvar = list(Daylength = daylen_b$daylen),
                               k = 3,
                               cdate = daylen_b$date,
