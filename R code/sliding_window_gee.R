@@ -60,7 +60,125 @@ llg_sub$release_site <- (llg_sub |>
                                                                 release_site == 'Northern_BC' ~ 'Alaska',
                                                                 ((release_site != 'Pacific Spirit') & (release_site != 'Northern_BC')) ~ release_site
                            )))$release_site_comb
+# FUNCTIONS---------------------------------------------------------------------
 
+# helper function to check if window overlaps with other windows in list
+overlaps <- function(win_opens, win_closes, o, c) {
+  flag <- FALSE
+  for (j in 1:length(win_opens)) {
+    v1 <- c(win_opens[j], win_closes[j])
+    v2 <- c(o, c)
+    # swap so that v1 has greater start than v2
+    if (v1[1] < v2[1]) {
+      temp <- v1
+      v1 <- v2
+      v2 <- temp
+    }
+    if (v2[1] >= v1[2]) {
+      flag <- TRUE
+      break
+    }
+  }
+  return(flag)
+}
+
+# function that takes climwin obj + finds all non-overlapping windows within 2 
+# deltaAICs of best model + has climate as significant predictor of departure date
+# NOTE: climate variable must be renamed to 'climate' and departure date must be 
+# renamed to 'dep_date'
+all_win <- function(win_obj, clim_data, ref_day) {
+  # if best model doesn't have climate as semi-significant predictor (p >= .1)
+  bestmod <- win_obj[[1]]$BestModel
+  if (summary(bestmod)$coefficients[7, 4] >= .1) {
+    return('climate variable not significant predictor of departure date')
+  }
+  
+  # get all windows within 2 delta AICs of best
+  dataset <- win_obj[[1]]$Dataset
+  maxdAIC <- dataset$deltaAICc[1]
+  dataset <- dataset |> filter(deltaAICc < maxdAIC + 2)
+  
+  # list of window opens + closes
+  win_opens <- c()
+  win_closes <- c()
+  for (i in 1:nrow(dataset)) {
+    # current window info
+    row <- dataset[i, ]
+    open <- row$WindowOpen
+    close <- row$WindowClose
+    
+    # check if overlaps with any recorded windows; go to next window if so
+    if (length(win_opens) > 0) {
+      if (overlaps(win_opens, win_closes, open, close) == TRUE) {
+        next
+      }
+    }
+    
+    # get corresponding env data
+    temp_clim <- clim_data |> 
+      mutate(ref_date = as.Date(paste0(year(dep_date), ref_day)),
+             open_date = ref_date - open,
+             close_date = ref_date - close) |> 
+      group_by(ID, dep_date, release_site) |> 
+      filter((date >= open_date) & (date <= close_date)) |> 
+      summarise(avg_clim = mean(climate, na.rm = TRUE))
+    
+    # get linear model using calculated data
+    mod <- lm(as.numeric(dep_date) ~ release_site + avg_clim, temp_clim)
+    
+    # if climate IS semi-significant predictor add to list
+    if (summary(mod)$coefficients[7, 4] <= .1) {
+      win_opens <- c(win_opens, open)
+      win_closes <- c(win_closes, close)
+    }
+  }
+  
+  return(data.frame(Opens = win_opens, Closes = win_closes))
+}
+
+# function to extract and plot best data
+window_plot <- function(window, varname, type) {
+  # extract best data for plots
+  bestdata <- window[[1]]$BestModelData
+  bestdata$yvar <- as.Date(bestdata$yvar, origin = '1970-01-01')
+  bestdata$yvar |> yday()
+  
+  # faceted plot
+  if (type == 'facet year') {
+    plot <- ggplot(bestdata, aes(x = yvar, y = climate)) +
+      geom_point() +
+      facet_wrap(as.factor(year(yvar))~., scales = 'free') +
+      labs(x = 'Departure Date',
+           y = varname,
+           title = paste0(varname,' vs. Departure Date',' by Year')) +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  }
+  if (type == 'facet site') {
+    plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate)) +
+      geom_point() +
+      facet_wrap(release_site~., scales = 'free') +
+      labs(x = 'Departure Day of Year',
+           y = varname,
+           title = paste0(varname,' vs. Departure Day of Year',' by Release Site'))
+  }
+  if (type == 'year') {
+    plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate, color = as.factor(year(yvar)))) +
+      geom_point() +
+      labs(x = 'Departure Day of Year',
+           y = varname,
+           title = paste0(varname,' vs. Departure Day of Year')) +
+      scale_color_discrete(name = 'Year')
+  }
+  if (type == 'site') {
+    plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate, color = release_site)) +
+      geom_point() +
+      labs(x = 'Departure Day of Year',
+           y = varname,
+           title = paste0(varname,' vs. Departure Day of Year')) +
+      scale_color_discrete(name = 'Release Site')
+  }
+  return(plot)
+}
 # WINTERING NDVI----------------------------------------------------------------
 
 # get wintering data
@@ -117,55 +235,16 @@ ndvi_w_mod <- ndvi_w_window[[1]]$BestModel
 summary(ndvi_w_mod)
 vif(ndvi_w_mod)
 
-# function to extract and plot best data
-window_plot <- function(window, varname, type) {
-  # extract best data for plots
-  bestdata <- window[[1]]$BestModelData
-  bestdata$yvar <- as.Date(bestdata$yvar, origin = '1970-01-01')
-  bestdata$yvar |> yday()
-  
-  # faceted plot
-  if (type == 'facet year') {
-    plot <- ggplot(bestdata, aes(x = yvar, y = climate)) +
-      geom_point() +
-      facet_wrap(as.factor(year(yvar))~., scales = 'free') +
-      labs(x = 'Departure Date',
-           y = varname,
-           title = paste0(varname,' vs. Departure Date',' by Year')) +
-      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-  }
-  if (type == 'facet site') {
-    plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate)) +
-      geom_point() +
-      facet_wrap(release_site~., scales = 'free') +
-      labs(x = 'Departure Day of Year',
-           y = varname,
-           title = paste0(varname,' vs. Departure Day of Year',' by Release Site'))
-  }
-  if (type == 'year') {
-    plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate, color = as.factor(year(yvar)))) +
-      geom_point() +
-      labs(x = 'Departure Day of Year',
-           y = varname,
-           title = paste0(varname,' vs. Departure Day of Year')) +
-      scale_color_discrete(name = 'Year')
-  }
-  if (type == 'site') {
-    plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate, color = release_site)) +
-      geom_point() +
-      labs(x = 'Departure Day of Year',
-           y = varname,
-           title = paste0(varname,' vs. Departure Day of Year')) +
-      scale_color_discrete(name = 'Release Site')
-  }
-  return(plot)
-}
-
 # plots
 window_plot(ndvi_w_window, 'NDVI', 'facet year')
 window_plot(ndvi_w_window, 'NDVI', 'facet site')
 window_plot(ndvi_w_window, 'NDVI', 'year')
 window_plot(ndvi_w_window, 'NDVI', 'site')
+
+# get best non-overlapping windows
+ndvi_w_cleandata <- ndvi_merged_clean |> filter(!ID %in% missing_birds)
+colnames(ndvi_w_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
+ndvi_w_allwin <- all_win(ndvi_w_window, ndvi_w_cleandata, '-03-03')
 
 # WINTERING CLIMATE DATA--------------------------------------------------------
 # i.e., precipitation, wind speed, temperature
@@ -256,6 +335,20 @@ window_plot(wind_w_window, 'Wind Speed', 'facet site')
 window_plot(wind_w_window, 'Wind Speed', 'year')
 window_plot(wind_w_window, 'Wind Speed', 'site')
 
+# get best non-overlapping windows
+clim_merged_clean <- clim_merged_clean |> filter(!ID %in% missing_clim)
+temp_w_cleandata <- clim_merged_clean
+colnames(temp_w_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
+temp_w_allwin <- all_win(temp_w_window, temp_w_cleandata, '-03-03') # not sig
+
+precip_w_cleandata <- clim_merged_clean
+colnames(precip_w_cleandata)[c(2, 7)] <- c('dep_date', 'climate')
+precip_w_allwin <- all_win(precip_w_window, precip_w_cleandata, '-03-03')
+
+wind_w_cleandata <- clim_merged_clean
+colnames(wind_w_cleandata)[c(2, 11)] <- c('dep_date', 'climate')
+wind_w_allwin <- all_win(wind_w_window, wind_w_cleandata, '-03-03')
+
 # WINTERING DAYLENGTH-----------------------------------------------------------
 # get rid of any rows missing lat or date
 llg_w_clean <- llg_w |> 
@@ -325,6 +418,11 @@ window_plot(daylen_w_window, 'Day Length', 'facet site')
 window_plot(daylen_w_window, 'Day Length', 'year')
 window_plot(daylen_w_window, 'Day Length', 'site')
 
+# get best non-overlapping windows
+daylen_w_cleandata <- llg_dts_w
+colnames(daylen_w_cleandata)[c(4, 11)] <- c('dep_date', 'climate')
+daylen_w_allwin <- all_win(daylen_w_window, daylen_w_cleandata, '-03-03')
+
 # BREEDING SEASON DATA----------------------------------------------------------
 # update gee data to breeding season
 ndvi <- read.csv('env_data/gee/NDVI_breeding.csv')
@@ -387,6 +485,10 @@ window_plot(ndvi_b_window, 'NDVI', 'facet site')
 window_plot(ndvi_b_window, 'NDVI', 'year')
 window_plot(ndvi_b_window, 'NDVI', 'site')
 
+# get best non-overlapping windows
+ndvi_b_cleandata <- ndvi_merged_clean
+colnames(ndvi_b_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
+ndvi_b_allwin <- all_win(ndvi_b_window, ndvi_b_cleandata, '-07-18')
 # BREEDING CLIMATE DATA---------------------------------------------------------
 # merge with climate data so we have release site 
 clim_merged <- merge(x = llg_b, y = clim, by = c('ID'), all.x = FALSE)
@@ -469,6 +571,19 @@ window_plot(wind_b_window, 'Wind Speed', 'facet site')
 window_plot(wind_b_window, 'Wind Speed', 'year')
 window_plot(wind_b_window, 'Wind Speed', 'site')
 
+# get best non-overlapping windows
+temp_b_cleandata <- clim_merged_clean
+colnames(temp_b_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
+temp_b_allwin <- all_win(temp_b_window, temp_b_cleandata, '-07-18') # not sig
+
+precip_b_cleandata <- clim_merged_clean
+colnames(precip_b_cleandata)[c(2, 7)] <- c('dep_date', 'climate')
+precip_b_allwin <- all_win(precip_b_window, precip_b_cleandata, '-07-18')
+
+wind_b_cleandata <- clim_merged_clean
+colnames(wind_b_cleandata)[c(2, 11)] <- c('dep_date', 'climate')
+wind_b_allwin <- all_win(wind_b_window, wind_b_cleandata, '-07-18')
+
 # BREEDING DAYLENGTH------------------------------------------------------------
 # get rid of any rows missing lat or date
 llg_b_clean <- llg_b |> 
@@ -538,3 +653,8 @@ window_plot(daylen_b_window, 'Day Length', 'facet year')
 window_plot(daylen_b_window, 'Day Length', 'facet site')
 window_plot(daylen_b_window, 'Day Length', 'year')
 window_plot(daylen_b_window, 'Day Length', 'site')
+
+# get best non-overlapping windows
+daylen_b_cleandata <- llg_dts_b
+colnames(daylen_b_cleandata)[c(4, 7)] <- c('dep_date', 'climate')
+daylen_b_allwin <- all_win(daylen_b_window, daylen_b_cleandata, '-07-18')
