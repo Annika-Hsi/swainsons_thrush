@@ -132,10 +132,18 @@ all_win <- function(win_obj, clim_data, ref_day) {
     if (summary(mod)$coefficients[7, 4] <= .1) {
       win_opens <- c(win_opens, open)
       win_closes <- c(win_closes, close)
+      if (i == 1) {
+        bestdat <- temp_clim
+        colnames(bestdat)[which(colnames(bestdat) == 'avg_clim')] <- paste0('win_', open, '_', close)
+      }
+      else {
+        bestdat <- merge(bestdat, temp_clim, by = c('ID', 'dep_date', 'release_site'), all.x = TRUE)
+        colnames(bestdat)[which(colnames(bestdat) == 'avg_clim')] <- paste0('win_', open, '_', close)
+      }
     }
   }
   
-  return(data.frame(Opens = win_opens, Closes = win_closes))
+  return(list(data.frame(Opens = win_opens, Closes = win_closes), bestdat))
 }
 
 # function to extract and plot best data
@@ -491,6 +499,7 @@ window_plot(ndvi_b_window, 'NDVI', 'site')
 ndvi_b_cleandata <- ndvi_merged_clean
 colnames(ndvi_b_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
 ndvi_b_allwin <- all_win(ndvi_b_window, ndvi_b_cleandata, '-07-18')
+
 # BREEDING CLIMATE DATA---------------------------------------------------------
 # merge with climate data so we have release site 
 clim_merged <- merge(x = llg_b, y = clim, by = c('ID'), all.x = FALSE)
@@ -585,6 +594,7 @@ precip_b_allwin <- all_win(precip_b_window, precip_b_cleandata, '-07-18')
 wind_b_cleandata <- clim_merged_clean
 colnames(wind_b_cleandata)[c(2, 11)] <- c('dep_date', 'climate')
 wind_b_allwin <- all_win(wind_b_window, wind_b_cleandata, '-07-18')
+
 # BREEDING DAYLENGTH------------------------------------------------------------
 # get rid of any rows missing lat or date
 llg_b_clean <- llg_b |> 
