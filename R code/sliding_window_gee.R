@@ -82,11 +82,13 @@ overlaps <- function(win_opens, win_closes, o, c) {
 }
 
 # function that takes climwin obj + finds all non-overlapping windows within 2 
-# deltaAICs of best model (type = 'AIC') or within the top n windows (type = n); 
-# and have climate as semi-significant predictor of departure date (p <= .1)
+# deltaAICs of best model and have climate as semi-significant predictor of 
+# departure date (p <= .1)
 # NOTE: climate variable must be renamed to 'climate' and departure date must be 
 # renamed to 'dep_date'
-all_win <- function(win_obj, clim_data, ref_day, type) {
+# REFERENCE: Burnham KP, Anderson DR. 2002 Model selection and multimodel 
+# inference: a practical information-theoretic approach. New York, NY: Springer.
+all_win <- function(win_obj, clim_data, ref_day) {
   # if best model doesn't have climate as semi-significant predictor (p >= .1)
   bestmod <- win_obj[[1]]$BestModel
   if (summary(bestmod)$coefficients[7, 4] > .1) {
@@ -96,14 +98,7 @@ all_win <- function(win_obj, clim_data, ref_day, type) {
   # get all windows within 2 delta AICs of best
   dataset <- win_obj[[1]]$Dataset
   maxdAIC <- dataset$deltaAICc[1]
-  if (type == 'AIC') {
-    dataset <- dataset |> filter(deltaAICc < maxdAIC + 2)
-  }
-  
-  # alternative version uses top 30 windows
-  else {
-    dataset <- dataset |> head(type)
-  }
+  dataset <- dataset |> filter(deltaAICc < maxdAIC + 2)
   
   # list of window opens + closes
   win_opens <- c()
@@ -251,8 +246,7 @@ window_plot(ndvi_w_window, 'NDVI', 'site')
 # get best non-overlapping windows
 ndvi_w_cleandata <- ndvi_merged_clean |> filter(!ID %in% missing_birds)
 colnames(ndvi_w_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
-ndvi_w_allwin <- all_win(ndvi_w_window, ndvi_w_cleandata, '-03-03', 'AIC')
-ndvi_w_allwin_alt <- all_win(ndvi_w_window, ndvi_w_cleandata, '-03-03', 200)
+ndvi_w_allwin <- all_win(ndvi_w_window, ndvi_w_cleandata, '-03-03')
 
 # WINTERING CLIMATE DATA--------------------------------------------------------
 # i.e., precipitation, wind speed, temperature
@@ -347,17 +341,15 @@ window_plot(wind_w_window, 'Wind Speed', 'site')
 clim_merged_clean <- clim_merged_clean |> filter(!ID %in% missing_clim)
 temp_w_cleandata <- clim_merged_clean
 colnames(temp_w_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
-temp_w_allwin <- all_win(temp_w_window, temp_w_cleandata, '-03-03', 'AIC') # not sig
+temp_w_allwin <- all_win(temp_w_window, temp_w_cleandata, '-03-03') # not sig
 
 precip_w_cleandata <- clim_merged_clean
 colnames(precip_w_cleandata)[c(2, 7)] <- c('dep_date', 'climate')
-precip_w_allwin <- all_win(precip_w_window, precip_w_cleandata, '-03-03', 'AIC')
-precip_w_allwin_alt <- all_win(precip_w_window, precip_w_cleandata, '-03-03', 200)
+precip_w_allwin <- all_win(precip_w_window, precip_w_cleandata, '-03-03')
 
 wind_w_cleandata <- clim_merged_clean
 colnames(wind_w_cleandata)[c(2, 11)] <- c('dep_date', 'climate')
-wind_w_allwin <- all_win(wind_w_window, wind_w_cleandata, '-03-03', 'AIC')
-wind_w_allwin_alt <- all_win(wind_w_window, wind_w_cleandata, '-03-03', 200)
+wind_w_allwin <- all_win(wind_w_window, wind_w_cleandata, '-03-03')
 
 # WINTERING DAYLENGTH-----------------------------------------------------------
 # get rid of any rows missing lat or date
@@ -431,8 +423,7 @@ window_plot(daylen_w_window, 'Day Length', 'site')
 # get best non-overlapping windows
 daylen_w_cleandata <- llg_dts_w
 colnames(daylen_w_cleandata)[c(4, 11)] <- c('dep_date', 'climate')
-daylen_w_allwin <- all_win(daylen_w_window, daylen_w_cleandata, '-03-03', 'AIC')
-daylen_w_allwin_alt <- all_win(daylen_w_window, daylen_w_cleandata, '-03-03', 200)
+daylen_w_allwin <- all_win(daylen_w_window, daylen_w_cleandata, '-03-03')
 
 # BREEDING SEASON DATA----------------------------------------------------------
 # update gee data to breeding season
@@ -499,8 +490,7 @@ window_plot(ndvi_b_window, 'NDVI', 'site')
 # get best non-overlapping windows
 ndvi_b_cleandata <- ndvi_merged_clean
 colnames(ndvi_b_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
-ndvi_b_allwin <- all_win(ndvi_b_window, ndvi_b_cleandata, '-07-18', 'AIC')
-ndvi_b_allwin_alt <- all_win(ndvi_b_window, ndvi_b_cleandata, '-07-18', 200)
+ndvi_b_allwin <- all_win(ndvi_b_window, ndvi_b_cleandata, '-07-18')
 # BREEDING CLIMATE DATA---------------------------------------------------------
 # merge with climate data so we have release site 
 clim_merged <- merge(x = llg_b, y = clim, by = c('ID'), all.x = FALSE)
@@ -586,18 +576,15 @@ window_plot(wind_b_window, 'Wind Speed', 'site')
 # get best non-overlapping windows
 temp_b_cleandata <- clim_merged_clean
 colnames(temp_b_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
-temp_b_allwin <- all_win(temp_b_window, temp_b_cleandata, '-07-18', 'AIC')
-temp_b_allwin_alt <- all_win(temp_b_window, temp_b_cleandata, '-07-18', 200)
+temp_b_allwin <- all_win(temp_b_window, temp_b_cleandata, '-07-18')
 
 precip_b_cleandata <- clim_merged_clean
 colnames(precip_b_cleandata)[c(2, 7)] <- c('dep_date', 'climate')
-precip_b_allwin <- all_win(precip_b_window, precip_b_cleandata, '-07-18', 'AIC')
-precip_b_allwin_alt <- all_win(precip_b_window, precip_b_cleandata, '-07-18', 200)
+precip_b_allwin <- all_win(precip_b_window, precip_b_cleandata, '-07-18')
 
 wind_b_cleandata <- clim_merged_clean
 colnames(wind_b_cleandata)[c(2, 11)] <- c('dep_date', 'climate')
-wind_b_allwin <- all_win(wind_b_window, wind_b_cleandata, '-07-18',  'AIC')
-wind_b_allwin_alt <- all_win(wind_b_window, wind_b_cleandata, '-07-18', 200)
+wind_b_allwin <- all_win(wind_b_window, wind_b_cleandata, '-07-18')
 # BREEDING DAYLENGTH------------------------------------------------------------
 # get rid of any rows missing lat or date
 llg_b_clean <- llg_b |> 
@@ -671,5 +658,4 @@ window_plot(daylen_b_window, 'Day Length', 'site')
 # get best non-overlapping windows
 daylen_b_cleandata <- llg_dts_b
 colnames(daylen_b_cleandata)[c(4, 7)] <- c('dep_date', 'climate')
-daylen_b_allwin <- all_win(daylen_b_window, daylen_b_cleandata, '-07-18', 'AIC')
-daylen_b_allwin_alt <- all_win(daylen_b_window, daylen_b_cleandata, '-07-18', 200)
+daylen_b_allwin <- all_win(daylen_b_window, daylen_b_cleandata, '-07-18')
