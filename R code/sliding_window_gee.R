@@ -88,12 +88,12 @@ overlaps <- function(win_opens, win_closes, o, c) {
 # renamed to 'dep_date'
 # REFERENCE: Burnham KP, Anderson DR. 2002 Model selection and multimodel 
 # inference: a practical information-theoretic approach. New York, NY: Springer.
-all_win <- function(win_obj, clim_data, ref_day) {
+all_win <- function(win_obj, clim_data, ref_day, varname) {
   # if best model doesn't have climate as semi-significant predictor (p >= .1)
   bestmod <- win_obj[[1]]$BestModel
   coefs <- summary(bestmod)$coefficients
   if (coefs[nrow(coefs), 4] > .1 | summary(bestmod)$adj.r.squared < 0.01) {
-    return('climate variable not significant predictor of departure date')
+    return(paste0(varname, ' not significant predictor of departure date'))
   }
   
   # get all windows within 2 delta AICs of best
@@ -136,11 +136,11 @@ all_win <- function(win_obj, clim_data, ref_day) {
       win_closes <- c(win_closes, close)
       if (i == 1) {
         bestdat <- temp_clim
-        colnames(bestdat)[which(colnames(bestdat) == 'avg_clim')] <- paste0('win_', open, '_', close)
+        colnames(bestdat)[which(colnames(bestdat) == 'avg_clim')] <- paste0(varname, '_', open, '_', close)
       }
       else {
         bestdat <- merge(bestdat, temp_clim, by = c('ID', 'dep_date', 'release_site', 'dep_year'), all.x = TRUE)
-        colnames(bestdat)[which(colnames(bestdat) == 'avg_clim')] <- paste0('win_', open, '_', close)
+        colnames(bestdat)[which(colnames(bestdat) == 'avg_clim')] <- paste0(varname, '_', open, '_', close)
       }
     }
   }
@@ -261,7 +261,7 @@ window_plot(ndvi_w_window, 'NDVI', 'site')
 # get best non-overlapping windows
 ndvi_w_cleandata <- ndvi_merged_clean |> filter(!ID %in% missing_birds)
 colnames(ndvi_w_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
-ndvi_w_allwin <- all_win(ndvi_w_window, ndvi_w_cleandata, '-03-03')
+ndvi_w_allwin <- all_win(ndvi_w_window, ndvi_w_cleandata, '-03-03', 'ndvi')
 
 # WINTERING CLIMATE DATA--------------------------------------------------------
 # i.e., precipitation, wind speed, temperature
@@ -355,15 +355,15 @@ window_plot(wind_w_window, 'Wind Speed', 'site')
 clim_merged_clean <- clim_merged_clean |> filter(!ID %in% missing_clim)
 temp_w_cleandata <- clim_merged_clean
 colnames(temp_w_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
-temp_w_allwin <- all_win(temp_w_window, temp_w_cleandata, '-03-03') # not sig
+temp_w_allwin <- all_win(temp_w_window, temp_w_cleandata, '-03-03', 'temp') # not sig
 
 precip_w_cleandata <- clim_merged_clean
 colnames(precip_w_cleandata)[c(2, 7)] <- c('dep_date', 'climate')
-precip_w_allwin <- all_win(precip_w_window, precip_w_cleandata, '-03-03')
+precip_w_allwin <- all_win(precip_w_window, precip_w_cleandata, '-03-03', 'precip')
 
 wind_w_cleandata <- clim_merged_clean
 colnames(wind_w_cleandata)[c(2, 11)] <- c('dep_date', 'climate')
-wind_w_allwin <- all_win(wind_w_window, wind_w_cleandata, '-03-03')
+wind_w_allwin <- all_win(wind_w_window, wind_w_cleandata, '-03-03', 'wind')
 
 # WINTERING DAYLENGTH-----------------------------------------------------------
 # get rid of any rows missing lat or date
@@ -436,7 +436,7 @@ window_plot(daylen_w_window, 'Day Length', 'site')
 # get best non-overlapping windows
 daylen_w_cleandata <- llg_dts_w
 colnames(daylen_w_cleandata)[c(4, 12)] <- c('dep_date', 'climate')
-daylen_w_allwin <- all_win(daylen_w_window, daylen_w_cleandata, '-03-03')
+daylen_w_allwin <- all_win(daylen_w_window, daylen_w_cleandata, '-03-03', 'daylen')
 
 # BREEDING SEASON DATA----------------------------------------------------------
 # update gee data to breeding season
@@ -506,7 +506,7 @@ window_plot(ndvi_b_window, 'NDVI', 'site')
 # get best non-overlapping windows
 ndvi_b_cleandata <- ndvi_merged_clean
 colnames(ndvi_b_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
-ndvi_b_allwin <- all_win(ndvi_b_window, ndvi_b_cleandata, '-07-18')
+ndvi_b_allwin <- all_win(ndvi_b_window, ndvi_b_cleandata, '-07-18', 'ndvi')
 
 # BREEDING CLIMATE DATA---------------------------------------------------------
 # merge with climate data so we have release site 
@@ -589,15 +589,15 @@ window_plot(wind_b_window, 'Wind Speed', 'site')
 # get best non-overlapping windows
 temp_b_cleandata <- clim_merged_clean
 colnames(temp_b_cleandata)[c(2, 6)] <- c('dep_date', 'climate')
-temp_b_allwin <- all_win(temp_b_window, temp_b_cleandata, '-07-18')
+temp_b_allwin <- all_win(temp_b_window, temp_b_cleandata, '-07-18', 'temp')
 
 precip_b_cleandata <- clim_merged_clean
 colnames(precip_b_cleandata)[c(2, 7)] <- c('dep_date', 'climate')
-precip_b_allwin <- all_win(precip_b_window, precip_b_cleandata, '-07-18')
+precip_b_allwin <- all_win(precip_b_window, precip_b_cleandata, '-07-18', 'precip')
 
 wind_b_cleandata <- clim_merged_clean
 colnames(wind_b_cleandata)[c(2, 12)] <- c('dep_date', 'climate')
-wind_b_allwin <- all_win(wind_b_window, wind_b_cleandata, '-07-18')
+wind_b_allwin <- all_win(wind_b_window, wind_b_cleandata, '-07-18', 'wind')
 
 # BREEDING DAYLENGTH------------------------------------------------------------
 # get rid of any rows missing lat or date
@@ -671,5 +671,14 @@ window_plot(daylen_b_window, 'Day Length', 'site')
 # get best non-overlapping windows
 daylen_b_cleandata <- llg_dts_b
 colnames(daylen_b_cleandata)[c(4, 7)] <- c('dep_date', 'climate')
-daylen_b_allwin <- all_win(daylen_b_window, daylen_b_cleandata, '-07-18')
+daylen_b_allwin <- all_win(daylen_b_window, daylen_b_cleandata, '-07-18', 'daylen')
 
+# SAVE EXTRACTED DATA-----------------------------------------------------------
+# merge wintering data
+merged_w <- merge(ndvi_w_allwin[[2]], temp_w_allwin[[2]], by = c('ID', 'dep_date', 'release_site', 'dep_year'))
+merged_w <- merge(merged_w, precip_w_allwin[[2]], by = c('ID', 'dep_date', 'release_site', 'dep_year'))
+merged_w <- merge(merged_w, daylen_w_allwin[[2]], by = c('ID', 'dep_date', 'release_site', 'dep_year'))
+
+# save data
+write.csv(merged_w, 'env_data/wintering_windows.csv')
+write.csv(precip_b_allwin[[2]], 'env_data/breeding_windows.csv')
