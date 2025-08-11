@@ -92,8 +92,7 @@ all_win <- function(win_obj, clim_data, ref_day) {
   # if best model doesn't have climate as semi-significant predictor (p >= .1)
   bestmod <- win_obj[[1]]$BestModel
   coefs <- summary(bestmod)$coefficients
-  if (coefs[nrow(coefs), 4] > .1 | summary(bestmod)$adj.r.squared < 0) {
-    #if (coefs[nrow(coefs), 4] > .1) {
+  if (coefs[nrow(coefs), 4] > .1 | summary(bestmod)$adj.r.squared < 0.01) {
     return('climate variable not significant predictor of departure date')
   }
   
@@ -120,7 +119,7 @@ all_win <- function(win_obj, clim_data, ref_day) {
     
     # get corresponding env data
     temp_clim <- clim_data |> 
-      mutate(ref_date = as.Date(paste0(year(dep_date), ref_day)),
+      mutate(ref_date = as.Date(paste0(dep_year, ref_day)),
              open_date = ref_date - open,
              close_date = ref_date - close) |> 
       group_by(ID, dep_date, release_site, dep_year) |> 
@@ -128,7 +127,7 @@ all_win <- function(win_obj, clim_data, ref_day) {
       summarise(avg_clim = mean(climate, na.rm = TRUE))
     
     # get linear model using calculated data
-    mod <- lm(as.numeric(dep_date) ~ release_site + dep_year + avg_clim, temp_clim)
+    mod <- lm(yday(dep_date) ~ release_site + dep_year + avg_clim, temp_clim)
     mod_coefs <- summary(mod)$coefficients
     
     # if climate IS semi-significant predictor add to list
@@ -572,10 +571,6 @@ summary(temp_b_window[[1]]$BestModel)
 summary(precip_b_window[[1]]$BestModel)
 summary(wind_b_window[[1]]$BestModel)
 
-vif(temp_b_window[[1]]$BestModel)
-vif(precip_b_window[[1]]$BestModel)
-vif(wind_b_window[[1]]$BestModel)
-
 # plots
 window_plot(temp_b_window, 'Temperature', 'facet year')
 window_plot(temp_b_window, 'Temperature', 'facet site')
@@ -665,7 +660,6 @@ daylen_b_window <- slidingwin(xvar = list(Daylength = daylen_b$daylen),
 # examine model
 daylen_b_window
 summary(daylen_b_window[[1]]$BestModel)
-vif(daylen_b_window[[1]]$BestModel) # high multicollinearity
 
 # plots
 window_plot(daylen_b_window, 'Day Length', 'facet year')
@@ -677,3 +671,4 @@ window_plot(daylen_b_window, 'Day Length', 'site')
 daylen_b_cleandata <- llg_dts_b
 colnames(daylen_b_cleandata)[c(4, 7)] <- c('dep_date', 'climate')
 daylen_b_allwin <- all_win(daylen_b_window, daylen_b_cleandata, '-07-18')
+
