@@ -159,6 +159,7 @@ window_plot <- function(window, varname, type) {
   if (type == 'facet year') {
     plot <- ggplot(bestdata, aes(x = yvar, y = climate, color = release_site)) +
       geom_point() +
+      geom_smooth(method = 'lm', alpha = .25) + 
       facet_wrap(dep_year~., scales = 'free') +
       labs(x = 'Departure Date',
            y = varname,
