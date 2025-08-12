@@ -23,6 +23,7 @@ llg_env_land <- read.csv('data/llg_env_land.csv')
 ndvi <- read.csv('env_data/gee/NDVI_wintering.csv')
 clim <- read.csv('env_data/gee/clim_wintering.csv')
 llg_orig <- read.csv('data/pheno_archival_raw_steph.csv')
+llg_ancestry <- read.csv('data/AIMs_metadata.20250327.csv')
 
 # re-add IDs to old env data
 llg_env_land$ID <- 1:nrow(llg_env_land)
@@ -34,6 +35,10 @@ llg_land <- llg_env_land |> select('ID', 'release_date', 'spring_dep_new', 'rele
 llg_orig <- llg_orig |> 
   filter(!is.na(spring_dep_new) | !is.na(fall_dep_new)) |> 
   filter(spring_dep_new != '' | fall_dep_new != '')
+
+# add ancestry data in case we want to use it in the future
+llg_ancestry <- llg_ancestry |> select('reference', 'aims_ancestry', 'aims_heterozygosity')
+llg_orig <- merge(x = llg_orig, y = llg_ancestry, by = c('reference'))
 
 # merge with data that has land coordinates
 llg_merged <- merge(x = llg_land, y = llg_orig, by = c('release_GPS.N', 'release_GPS.W', 'wintering_lat', 'wintering_long'))
@@ -53,7 +58,7 @@ sum(llg_merged$fall_dep_new.x != llg_merged$fall_dep_new.y, na.rm = TRUE)
 
 # remove duplicate/excess columns
 colnames(llg_merged)
-llg_sub <- llg_merged[, c(1:10, 12)]
+llg_sub <- llg_merged[, c(1:5, 7:12, 46:47)]
 
 llg_sub$release_site <- (llg_sub |> 
                            mutate(release_site_comb = case_when(release_site == 'Pacific Spirit' ~ 'Porpoise Bay',
@@ -122,7 +127,7 @@ all_win <- function(win_obj, clim_data, ref_day, varname) {
       mutate(ref_date = as.Date(paste0(dep_year, ref_day)),
              open_date = ref_date - open,
              close_date = ref_date - close) |> 
-      group_by(ID, dep_date, release_site, dep_year) |> 
+      group_by(ID, dep_date, release_site, dep_year, aims_ancestry, aims_heterozygosity) |> 
       filter((date >= open_date) & (date <= close_date)) |> 
       summarise(avg_clim = mean(climate, na.rm = TRUE))
     
@@ -139,7 +144,7 @@ all_win <- function(win_obj, clim_data, ref_day, varname) {
         colnames(bestdat)[which(colnames(bestdat) == 'avg_clim')] <- paste0(varname, '_', open, '_', close)
       }
       else {
-        bestdat <- merge(bestdat, temp_clim, by = c('ID', 'dep_date', 'release_site', 'dep_year'), all.x = TRUE)
+        bestdat <- merge(bestdat, temp_clim, by = c('ID', 'dep_date', 'release_site', 'dep_year', 'aims_ancestry', 'aims_heterozygosity'), all.x = TRUE)
         colnames(bestdat)[which(colnames(bestdat) == 'avg_clim')] <- paste0(varname, '_', open, '_', close)
       }
     }
@@ -196,7 +201,7 @@ window_plot <- function(window, varname, type) {
 
 # get wintering data
 llg_w <- llg_sub |> 
-  select('ID', 'wintering_lat', 'wintering_long', 'spring_dep_new.x', 'land_coords.lat_w', 'land_coords.lon_w', 'release_site') |> 
+  select('ID', 'wintering_lat', 'wintering_long', 'spring_dep_new.x', 'land_coords.lat_w', 'land_coords.lon_w', 'release_site', 'aims_ancestry', 'aims_heterozygosity') |> 
   mutate(dep_year = as.factor(year(spring_dep_new.x)))
 
 # replace recorded coordinates with land coordinates where necessary
@@ -207,7 +212,7 @@ llg_w <- llg_w |>
 # merge with NDVI data so we have release site 
 ndvi_merged <- merge(x = llg_w, y = ndvi, by = c('ID'), all.x = FALSE)
 ndvi_merged_clean <- ndvi_merged |> 
-  select('ID', 'spring_dep_new.x', 'lat_w', 'lon_w', 'date', 'ndvi', 'release_site', 'dep_year')
+  select('ID', 'spring_dep_new.x', 'lat_w', 'lon_w', 'date', 'ndvi', 'release_site', 'dep_year', 'aims_ancestry', 'aims_heterozygosity')
 
 # split into datasets for sliding window
 dep_w <- llg_w |> 
@@ -269,7 +274,7 @@ ndvi_w_allwin <- all_win(ndvi_w_window, ndvi_w_cleandata, '-03-03', 'ndvi')
 # merge with climate data so we have release site 
 clim_merged <- merge(x = llg_w, y = clim, by = c('ID'), all.x = FALSE)
 clim_merged_clean <- clim_merged |> 
-  select('ID', 'spring_dep_new.x', 'lat_w', 'lon_w', 'date', 'temp_2m', 'total_precip', 'u_wind', 'v_wind', 'release_site', 'dep_year')
+  select('ID', 'spring_dep_new.x', 'lat_w', 'lon_w', 'date', 'temp_2m', 'total_precip', 'u_wind', 'v_wind', 'release_site', 'dep_year', 'aims_ancestry', 'aims_heterozygosity')
 
 # calculate wind speed
 clim_merged_clean <- clim_merged_clean |> mutate(wind_speed = sqrt(u_wind^2 + v_wind^2))
@@ -362,7 +367,7 @@ colnames(precip_w_cleandata)[c(2, 7)] <- c('dep_date', 'climate')
 precip_w_allwin <- all_win(precip_w_window, precip_w_cleandata, '-03-03', 'precip')
 
 wind_w_cleandata <- clim_merged_clean
-colnames(wind_w_cleandata)[c(2, 11)] <- c('dep_date', 'climate')
+colnames(wind_w_cleandata)[c(2, 14)] <- c('dep_date', 'climate')
 wind_w_allwin <- all_win(wind_w_window, wind_w_cleandata, '-03-03', 'wind')
 
 # WINTERING DAYLENGTH-----------------------------------------------------------
@@ -459,12 +464,12 @@ clim$ID |> unique() |> length()
 
 # get breeding data
 llg_b <- llg_sub |> 
-  select('ID', 'release_GPS.N', 'release_GPS.W', 'fall_dep_new.x', 'release_site') |> 
+  select('ID', 'release_GPS.N', 'release_GPS.W', 'fall_dep_new.x', 'release_site', 'aims_ancestry', 'aims_heterozygosity') |> 
   mutate(dep_year = as.factor(year(fall_dep_new.x)))
 
 # merge with NDVI data so we have release site 
 ndvi_merged <- merge(x = llg_b, y = ndvi, by = c('ID'), all.x = FALSE)
-ndvi_merged_clean <- ndvi_merged |> select('ID', 'fall_dep_new.x', 'lat', 'lon', 'date', 'ndvi', 'release_site', 'dep_year')
+ndvi_merged_clean <- ndvi_merged |> select('ID', 'fall_dep_new.x', 'lat', 'lon', 'date', 'ndvi', 'release_site', 'dep_year', 'aims_ancestry', 'aims_heterozygosity')
 
 # split into datasets for sliding window
 dep_b <- llg_b |> 
@@ -511,7 +516,7 @@ ndvi_b_allwin <- all_win(ndvi_b_window, ndvi_b_cleandata, '-07-18', 'ndvi')
 # BREEDING CLIMATE DATA---------------------------------------------------------
 # merge with climate data so we have release site 
 clim_merged <- merge(x = llg_b, y = clim, by = c('ID'), all.x = FALSE)
-clim_merged_clean <- clim_merged |> select('ID', 'fall_dep_new.x', 'lat', 'lon', 'date', 'temp_2m', 'total_precip', 'u_wind', 'v_wind', 'release_site', 'dep_year')
+clim_merged_clean <- clim_merged |> select('ID', 'fall_dep_new.x', 'lat', 'lon', 'date', 'temp_2m', 'total_precip', 'u_wind', 'v_wind', 'release_site', 'dep_year', 'aims_ancestry', 'aims_heterozygosity')
 
 # calculate wind speed
 clim_merged_clean <- clim_merged_clean |> mutate(wind_speed = sqrt(u_wind^2 + v_wind^2))
@@ -596,7 +601,7 @@ colnames(precip_b_cleandata)[c(2, 7)] <- c('dep_date', 'climate')
 precip_b_allwin <- all_win(precip_b_window, precip_b_cleandata, '-07-18', 'precip')
 
 wind_b_cleandata <- clim_merged_clean
-colnames(wind_b_cleandata)[c(2, 12)] <- c('dep_date', 'climate')
+colnames(wind_b_cleandata)[c(2, 14)] <- c('dep_date', 'climate')
 wind_b_allwin <- all_win(wind_b_window, wind_b_cleandata, '-07-18', 'wind')
 
 # BREEDING DAYLENGTH------------------------------------------------------------
@@ -670,14 +675,14 @@ window_plot(daylen_b_window, 'Day Length', 'site')
 
 # get best non-overlapping windows
 daylen_b_cleandata <- llg_dts_b
-colnames(daylen_b_cleandata)[c(4, 7)] <- c('dep_date', 'climate')
+colnames(daylen_b_cleandata)[c(4, 10)] <- c('dep_date', 'climate')
 daylen_b_allwin <- all_win(daylen_b_window, daylen_b_cleandata, '-07-18', 'daylen')
 
 # SAVE EXTRACTED DATA-----------------------------------------------------------
 # merge wintering data
-merged_w <- merge(ndvi_w_allwin[[2]], temp_w_allwin[[2]], by = c('ID', 'dep_date', 'release_site', 'dep_year'))
-merged_w <- merge(merged_w, precip_w_allwin[[2]], by = c('ID', 'dep_date', 'release_site', 'dep_year'))
-merged_w <- merge(merged_w, daylen_w_allwin[[2]], by = c('ID', 'dep_date', 'release_site', 'dep_year'))
+merged_w <- merge(ndvi_w_allwin[[2]], temp_w_allwin[[2]], by = c('ID', 'dep_date', 'release_site', 'dep_year', 'aims_ancestry', 'aims_heterozygosity'))
+merged_w <- merge(merged_w, precip_w_allwin[[2]], by = c('ID', 'dep_date', 'release_site', 'dep_year', 'aims_ancestry', 'aims_heterozygosity'))
+merged_w <- merge(merged_w, daylen_w_allwin[[2]], by = c('ID', 'dep_date', 'release_site', 'dep_year', 'aims_ancestry', 'aims_heterozygosity'))
 
 # save data
 write.csv(merged_w, 'env_data/wintering_windows.csv')
