@@ -154,49 +154,58 @@ all_win <- function(win_obj, clim_data, ref_day, varname) {
 }
 
 # function to extract and plot best data
-# window_plot <- function(window, varname, type) {
-#   # extract best data for plots
-#   bestdata <- window[[1]]$BestModelData
-#   bestdata$yvar <- as.Date(bestdata$yvar, origin = '1970-01-01')
-#   bestdata$yvar |> yday()
-#   
-#   # faceted plot
-#   if (type == 'facet year') {
-#     plot <- ggplot(bestdata, aes(x = yvar, y = climate, color = release_site)) +
-#       geom_point() +
-#       geom_smooth(method = 'lm', alpha = .25) + 
-#       facet_wrap(dep_year~., scales = 'free') +
-#       labs(x = 'Departure Date',
-#            y = varname,
-#            title = paste0(varname,' vs. Departure Date',' by Year')) +
-#       theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-#   }
-#   if (type == 'facet site') {
-#     plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate)) +
-#       geom_point() +
-#       facet_wrap(release_site~., scales = 'free') +
-#       labs(x = 'Departure Day of Year',
-#            y = varname,
-#            title = paste0(varname,' vs. Departure Day of Year',' by Release Site'))
-#   }
-#   if (type == 'year') {
-#     plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate, color = dep_year)) +
-#       geom_point() +
-#       labs(x = 'Departure Day of Year',
-#            y = varname,
-#            title = paste0(varname,' vs. Departure Day of Year')) +
-#       scale_color_discrete(name = 'Year')
-#   }
-#   if (type == 'site') {
-#     plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate, color = release_site)) +
-#       geom_point() +
-#       labs(x = 'Departure Day of Year',
-#            y = varname,
-#            title = paste0(varname,' vs. Departure Day of Year')) +
-#       scale_color_discrete(name = 'Release Site')
-#   }
-#   return(plot)
-# }
+window_plot <- function(window, varname, type) {
+  # extract best data for plots
+  bestdata <- window[[1]]$BestModelData
+  bestdata$yvar <- as.Date(bestdata$yvar, origin = '1970-01-01')
+  bestdata$yvar |> yday()
+  
+  # faceted plot
+  if (type == 'facet year') {
+    plot <- ggplot(bestdata, aes(x = yvar, y = climate)) +
+      geom_point() +
+      geom_smooth(method = 'lm', alpha = .25) +
+      facet_wrap(dep_year~., scales = 'free') +
+      labs(x = 'Departure Day',
+           y = varname,
+           title = paste0(varname,' vs. Departure Day',' by Year')) +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  }
+  if (type == 'ancestry') {
+    plot <- ggplot(bestdata, aes(x = yvar, y = aims_ancestry)) +
+      geom_point() +
+      geom_smooth(method = 'lm', alpha = .25) +
+      facet_wrap(dep_year~.) +
+      labs(x = 'Departure Day',
+           y = 'Ancestry',
+           title = 'Ancestry vs. Departure Day by Year')
+  }
+  # if (type == 'facet site') {
+  #   plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate)) +
+  #     geom_point() +
+  #     facet_wrap(release_site~., scales = 'free') +
+  #     labs(x = 'Departure Day of Year',
+  #          y = varname,
+  #          title = paste0(varname,' vs. Departure Day of Year',' by Release Site'))
+  # }
+  if (type == 'year') {
+    plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate, color = dep_year)) +
+      geom_point() +
+      labs(x = 'Departure Day of Year',
+           y = varname,
+           title = paste0(varname,' vs. Departure Day of Year')) +
+      scale_color_discrete(name = 'Year')
+  }
+  # if (type == 'site') {
+  #   plot <- ggplot(bestdata, aes(x = yday(yvar), y = climate, color = release_site)) +
+  #     geom_point() +
+  #     labs(x = 'Departure Day of Year',
+  #          y = varname,
+  #          title = paste0(varname,' vs. Departure Day of Year')) +
+  #     scale_color_discrete(name = 'Release Site')
+  # }
+  return(plot)
+}
 # WINTERING NDVI----------------------------------------------------------------
 
 # get wintering data
@@ -258,9 +267,10 @@ ndvi_w_mod <- ndvi_w_window[[1]]$BestModel
 summary(ndvi_w_mod)
 
 # plots
-# window_plot(ndvi_w_window, 'NDVI', 'facet year')
+window_plot(ndvi_w_window, 'NDVI', 'facet year')
+window_plot(ndvi_w_window, 'NDVI', 'ancestry') # same regardless of variable so only plotting here
 # window_plot(ndvi_w_window, 'NDVI', 'facet site')
-# window_plot(ndvi_w_window, 'NDVI', 'year')
+window_plot(ndvi_w_window, 'NDVI', 'year')
 # window_plot(ndvi_w_window, 'NDVI', 'site')
 
 # get best non-overlapping windows
@@ -343,17 +353,17 @@ summary(precip_w_window[[1]]$BestModel)
 summary(wind_w_window[[1]]$BestModel)
 
 # plots
-# window_plot(temp_w_window, 'Temperature', 'facet year')
+window_plot(temp_w_window, 'Temperature', 'facet year')
 # window_plot(temp_w_window, 'Temperature', 'facet site')
-# window_plot(temp_w_window, 'Temperature', 'year')
+window_plot(temp_w_window, 'Temperature', 'year')
 # window_plot(temp_w_window, 'Temperature', 'site')
-# window_plot(precip_w_window, 'Precipitation', 'facet year')
+window_plot(precip_w_window, 'Precipitation', 'facet year')
 # window_plot(precip_w_window, 'Precipitation', 'facet site')
-# window_plot(precip_w_window, 'Precipitation', 'year')
+window_plot(precip_w_window, 'Precipitation', 'year')
 # window_plot(precip_w_window, 'Precipitation', 'site')
-# window_plot(wind_w_window, 'Wind Speed', 'facet year')
+window_plot(wind_w_window, 'Wind Speed', 'facet year')
 # window_plot(wind_w_window, 'Wind Speed', 'facet site')
-# window_plot(wind_w_window, 'Wind Speed', 'year')
+window_plot(wind_w_window, 'Wind Speed', 'year')
 # window_plot(wind_w_window, 'Wind Speed', 'site')
 
 # get best non-overlapping windows
@@ -433,9 +443,9 @@ daylen_w_window <- slidingwin(xvar = list(Daylength = daylen_w$daylen),
 summary(daylen_w_window[[1]]$BestModel)
 
 # plots
-# window_plot(daylen_w_window, 'Day Length', 'facet year')
+window_plot(daylen_w_window, 'Day Length', 'facet year')
 # window_plot(daylen_w_window, 'Day Length', 'facet site')
-# window_plot(daylen_w_window, 'Day Length', 'year')
+window_plot(daylen_w_window, 'Day Length', 'year')
 # window_plot(daylen_w_window, 'Day Length', 'site')
 
 # get best non-overlapping windows
@@ -503,9 +513,10 @@ ndvi_b_window <- slidingwin(xvar = list(NDVI = ndvi_b$ndvi),
 summary(ndvi_b_window[[1]]$BestModel) 
 
 # plots
-# window_plot(ndvi_b_window, 'NDVI', 'facet year')
+window_plot(ndvi_b_window, 'NDVI', 'facet year')
+window_plot(ndvi_b_window, 'NDVI', 'ancestry')
 # window_plot(ndvi_b_window, 'NDVI', 'facet site')
-# window_plot(ndvi_b_window, 'NDVI', 'year')
+window_plot(ndvi_b_window, 'NDVI', 'year')
 # window_plot(ndvi_b_window, 'NDVI', 'site')
 
 # get best non-overlapping windows
@@ -580,17 +591,17 @@ summary(precip_b_window[[1]]$BestModel)
 summary(wind_b_window[[1]]$BestModel)
 
 # plots
-# window_plot(temp_b_window, 'Temperature', 'facet year')
+window_plot(temp_b_window, 'Temperature', 'facet year')
 # window_plot(temp_b_window, 'Temperature', 'facet site')
-# window_plot(temp_b_window, 'Temperature', 'year')
+window_plot(temp_b_window, 'Temperature', 'year')
 # window_plot(temp_b_window, 'Temperature', 'site')
-# window_plot(precip_b_window, 'Precipitation', 'facet year')
+window_plot(precip_b_window, 'Precipitation', 'facet year')
 # window_plot(precip_b_window, 'Precipitation', 'facet site')
-# window_plot(precip_b_window, 'Precipitation', 'year')
+window_plot(precip_b_window, 'Precipitation', 'year')
 # window_plot(precip_b_window, 'Precipitation', 'site')
-# window_plot(wind_b_window, 'Wind Speed', 'facet year')
+window_plot(wind_b_window, 'Wind Speed', 'facet year')
 # window_plot(wind_b_window, 'Wind Speed', 'facet site')
-# window_plot(wind_b_window, 'Wind Speed', 'year')
+window_plot(wind_b_window, 'Wind Speed', 'year')
 # window_plot(wind_b_window, 'Wind Speed', 'site')
 
 # get best non-overlapping windows
@@ -670,9 +681,9 @@ daylen_b_window
 summary(daylen_b_window[[1]]$BestModel)
 
 # plots
-# window_plot(daylen_b_window, 'Day Length', 'facet year')
+window_plot(daylen_b_window, 'Day Length', 'facet year')
 # window_plot(daylen_b_window, 'Day Length', 'facet site')
-# window_plot(daylen_b_window, 'Day Length', 'year')
+window_plot(daylen_b_window, 'Day Length', 'year')
 # window_plot(daylen_b_window, 'Day Length', 'site')
 
 # get best non-overlapping windows
