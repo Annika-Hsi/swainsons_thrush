@@ -1,4 +1,4 @@
-
+# ROUGH DRAFT VERSION: figuring out how to use climwin package
 # PURPOSE: run climwin sliding window on environmental data from Google Earth 
 # Engine corresponding to Swainson's Thrush observations from the wintering and
 # breeding seasons
