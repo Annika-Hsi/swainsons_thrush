@@ -99,7 +99,7 @@ overlaps <- function(win_opens, win_closes, o, c) {
 # renamed to 'dep_date'
 # REFERENCE: Burnham KP, Anderson DR. 2002 Model selection and multimodel 
 # inference: a practical information-theoretic approach. New York, NY: Springer.
-all_win <- function(win_obj, clim_data, ref_day, varname, model, agg) {
+all_win <- function(win_obj, clim_data, ref_day, varname, model, agg, dep_year = TRUE) {
   bestmod <- win_obj[[1]]$BestModel
   coefs <- summary(bestmod)$coefficients
   
@@ -175,14 +175,31 @@ all_win <- function(win_obj, clim_data, ref_day, varname, model, agg) {
     # get model
     # if linear model
     if (model == 'linear') {
-      # model
-      mod <- lm(yday(dep_date) ~ transf_ancestry + agg_clim, temp_clim)
+      
+      # if dep_year in model or not
+      if (dep_year) {
+        mod <- lm(yday(dep_date) ~ transf_ancestry + dep_year + agg_clim, temp_clim)
+      }
+      else {
+        mod <- lm(yday(dep_date) ~ transf_ancestry + agg_clim, temp_clim)
+      }
+      
+      # extract coefficients
       mod_coefs <- summary(mod)$coefficients
     }
     
     # if coxph model
     if (model == 'coxph') {
-      mod <- coxph(Surv(yday(dep_date), rep(1, nrow(temp_clim))) ~ transf_ancestry + agg_clim, data = temp_clim)
+      
+      # if dep_year in model or not
+      if (dep_year) {
+        mod <- coxph(Surv(yday(dep_date), rep(1, nrow(temp_clim))) ~ transf_ancestry + dep_year + agg_clim, data = temp_clim)
+      }
+      else {
+        mod <- coxph(Surv(yday(dep_date), rep(1, nrow(temp_clim))) ~ transf_ancestry + agg_clim, data = temp_clim)
+      }
+      
+      # extract coefficients
       mod_coefs <- summary(mod)$coefficients
     }
     
@@ -206,18 +223,28 @@ all_win <- function(win_obj, clim_data, ref_day, varname, model, agg) {
 }
 
 # function to extract and plot best data
-window_plot <- function(window, varname) {
+window_plot <- function(window, varname, type) {
   # extract best data for plots
   bestdata <- window[[1]]$BestModelData
   bestdata$yvar <- as.Date(bestdata$yvar, origin = '1970-01-01')
   bestdata$yvar |> yday()
   
-  plot <- ggplot(bestdata, aes(x = yvar, y = climate, color = transf_ancestry)) + 
-    geom_point() + 
-    #geom_smooth(method = 'lm', alpha = .25) +
-    labs(x = 'Departure Day of Year',
-         y = varname,
-         title = paste0('Departure vs. ', varname))
+  if (type == 'ancestry') {
+    plot <- ggplot(bestdata, aes(x = yvar, y = climate, color = transf_ancestry)) + 
+      geom_point() + 
+      labs(x = 'Departure Day of Year',
+           y = varname,
+           title = paste0('Departure vs. ', varname))
+  }
+  if (type == 'year') {
+    plot <- ggplot(bestdata, aes(x = yvar, y = climate, color = dep_year)) + 
+      geom_point() + 
+      #geom_smooth(method = 'lm', alpha = .25) +
+      labs(x = 'Departure Day of Year',
+           y = varname,
+           title = paste0('Departure vs. ', varname))
+  }
+  
   
   return(plot)
 }
@@ -299,7 +326,7 @@ precip_w_win_mean <- slidingwin(xvar = list(Precip = clim_w_clean$total_precip),
                                 k = 4,
                                 cdate = clim_w_clean$date,
                                 bdate = dep_w_clean2$spring_dep_new.x,
-                                baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry, data = dep_w_clean2), 
+                                baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
                                 cinterval = "day",
                                 cmissing = 'method1',
                                 range = c(184, 0),
@@ -313,12 +340,19 @@ precip_w_win_mean
 precip_w_mean_bestmod <- precip_w_win_mean[[1]]$BestModel
 summary(precip_w_mean_bestmod)
 vif(precip_w_mean_bestmod)
-window_plot(precip_w_win_mean, 'Precipitation', NULL)
+AIC(precip_w_mean_bestmod)
+window_plot(precip_w_win_mean, 'Precipitation', 'ancestry')
 
 # check assumptions
 plot(precip_w_mean_bestmod)
 hist(resid(precip_w_mean_bestmod))
-shapiro.test(resid(precip_w_mean_bestmod)) # non-normal
+shapiro.test(resid(precip_w_mean_bestmod))
+bptest(yvar ~ transf_ancestry + dep_year + climate, data = precip_w_win_mean[[1]]$BestModelData)
+
+# get all windows
+clim_data <- clim_merged_clean |> filter(!ID %in% missing_clim)
+colnames(clim_data)[c(2, 7)] <- c('dep_date', 'climate')
+precip_w_mean_allwin <- all_win(precip_w_win_mean, clim_data, '-03-03', 'precip', 'linear', 'mean')
 
 # precipitation sliding window using slope as aggregate
 set.seed(123)
@@ -326,7 +360,7 @@ precip_w_win_sl <- slidingwin(xvar = list(Precip = clim_w_clean$total_precip),
                               k = 4,
                               cdate = clim_w_clean$date,
                               bdate = dep_w_clean2$spring_dep_new.x,
-                              baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry, data = dep_w_clean2), 
+                              baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
                               cinterval = "day",
                               cmissing = 'method1',
                               range = c(184, 0),
@@ -340,17 +374,15 @@ precip_w_win_sl
 precip_w_sl_bestmod <- precip_w_win_sl[[1]]$BestModel
 summary(precip_w_sl_bestmod)
 vif(precip_w_sl_bestmod)
-window_plot(precip_w_win_sl, 'Precipitation', NULL)
+window_plot(precip_w_win_sl, 'Precipitation', 'ancestry')
 
 # check assumptions
 plot(precip_w_sl_bestmod)
 hist(resid(precip_w_sl_bestmod))
 shapiro.test(resid(precip_w_sl_bestmod))
-bptest(yvar ~ transf_ancestry + climate, data = precip_w_win_sl[[1]]$BestModelData)
+bptest(yvar ~ transf_ancestry + dep_year + climate, data = precip_w_win_sl[[1]]$BestModelData)
 
 # get all windows
-clim_data <- clim_merged_clean |> filter(!ID %in% missing_clim)
-colnames(clim_data)[c(2, 7)] <- c('dep_date', 'climate')
 precip_w_sl_allwin <- all_win(precip_w_win_sl, clim_data, '-03-03', 'precip', 'linear', 'slope')
 
 # check for overfitting using random window -> doesn't work bc wants all years of data for all birds
@@ -378,7 +410,7 @@ precip_w_sl_allwin <- all_win(precip_w_win_sl, clim_data, '-03-03', 'precip', 'l
 precip_w_cph_mean <- slidingwin(xvar = list(Precip = clim_w_clean$total_precip),
                                 cdate = clim_w_clean$date,
                                 bdate = dep_w_clean2$spring_dep_new.x,
-                                baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry, data = dep_w_clean2), 
+                                baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
                                 cinterval = "day",
                                 cmissing = 'method1',
                                 range = c(184, 0),
@@ -388,8 +420,10 @@ precip_w_cph_mean <- slidingwin(xvar = list(Precip = clim_w_clean$total_precip),
                                 spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
 
 # examine model
+precip_w_cph_mean
 precip_w_cph_mean_bestmod <- precip_w_cph_mean[[1]]$BestModel
 summary(precip_w_cph_mean_bestmod)
+summary(precip_w_cph_mean_bestmod)$rsq
 precip_w_cph_mean_survfit <- survfit(precip_w_cph_mean_bestmod)
 AIC(precip_w_cph_mean_bestmod)
 
@@ -405,7 +439,7 @@ precip_w_cph_mean_allwin <- all_win(precip_w_cph_mean, clim_data, '-03-03', 'pre
 precip_w_cph_sl <- slidingwin(xvar = list(Precip = clim_w_clean$total_precip),
                               cdate = clim_w_clean$date,
                               bdate = dep_w_clean2$spring_dep_new.x,
-                              baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry, data = dep_w_clean2), 
+                              baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
                               cinterval = "day",
                               cmissing = 'method1',
                               range = c(184, 0),
@@ -415,8 +449,10 @@ precip_w_cph_sl <- slidingwin(xvar = list(Precip = clim_w_clean$total_precip),
                               spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
 
 # examine model
+precip_w_cph_sl
 precip_w_cph_sl_bestmod <- precip_w_cph_sl[[1]]$BestModel
 summary(precip_w_cph_sl_bestmod)
+summary(precip_w_cph_sl_bestmod)$rsq
 precip_w_cph_sl_survfit <- survfit(precip_w_cph_sl_bestmod)
 AIC(precip_w_cph_sl_bestmod)
 
@@ -435,7 +471,7 @@ temp_w_win_mean <- slidingwin(xvar = list(Temp = clim_w_clean$temp_2m),
                               k = 4,
                               cdate = clim_w_clean$date,
                               bdate = dep_w_clean2$spring_dep_new.x,
-                              baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry, data = dep_w_clean2),
+                              baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_w_clean2),
                               cinterval = "day",
                               cmissing = 'method1',
                               range = c(184, 0),
@@ -449,12 +485,18 @@ temp_w_win_mean
 temp_w_mean_bestmod <- temp_w_win_mean[[1]]$BestModel
 summary(temp_w_mean_bestmod)
 vif(temp_w_mean_bestmod)
-window_plot(temp_w_win_mean, 'Temperature', NULL)
+window_plot(temp_w_win_mean, 'Temperature', 'ancestry')
 
 # check assumptions
 plot(temp_w_mean_bestmod)
 hist(resid(temp_w_mean_bestmod))
 shapiro.test(resid(temp_w_mean_bestmod)) # non-normal
+bptest(yvar ~ transf_ancestry + dep_year + climate, data = temp_w_win_mean[[1]]$BestModelData)
+
+# get all windows
+clim_data <- clim_merged_clean |> filter(!ID %in% missing_clim)
+colnames(clim_data)[c(2, 6)] <- c('dep_date', 'climate')
+temp_w_mean_allwin <- all_win(temp_w_win_mean, clim_data, '-03-03', 'temp', 'linear', 'mean')
 
 # temperature sliding window using slope as aggregate
 set.seed(123)
@@ -462,7 +504,7 @@ temp_w_win_sl <- slidingwin(xvar = list(Temp = clim_w_clean$temp_2m),
                             k = 4,
                             cdate = clim_w_clean$date,
                             bdate = dep_w_clean2$spring_dep_new.x,
-                            baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry, data = dep_w_clean2), 
+                            baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
                             cinterval = "day",
                             cmissing = 'method1',
                             range = c(184, 0),
@@ -476,19 +518,23 @@ temp_w_win_sl
 temp_w_sl_bestmod <- temp_w_win_sl[[1]]$BestModel
 summary(temp_w_sl_bestmod)
 vif(temp_w_sl_bestmod)
-window_plot(temp_w_win_sl, 'Temperature', NULL)
+window_plot(temp_w_win_sl, 'Temperature', 'ancestry')
 
 # check assumptions
 plot(temp_w_sl_bestmod)
 hist(resid(temp_w_sl_bestmod))
-shapiro.test(resid(temp_w_sl_bestmod)) # non-normal
+shapiro.test(resid(temp_w_sl_bestmod))
+bptest(yvar ~ transf_ancestry + dep_year + climate, data = temp_w_win_sl[[1]]$BestModelData)
+
+# get all windows
+temp_w_sl_allwin <- all_win(temp_w_win_sl, clim_data, '-03-03', 'temp', 'linear', 'slope')
 
 # Cox proportional hazards models
 # using mean as aggregate
 temp_w_cph_mean <- slidingwin(xvar = list(Temp = clim_w_clean$temp_2m),
                               cdate = clim_w_clean$date,
                               bdate = dep_w_clean2$spring_dep_new.x,
-                              baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry, data = dep_w_clean2), 
+                              baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
                               cinterval = "day",
                               cmissing = 'method1',
                               range = c(184, 0),
@@ -497,8 +543,11 @@ temp_w_cph_mean <- slidingwin(xvar = list(Temp = clim_w_clean$temp_2m),
                               func = "lin", 
                               spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
 
+# examine model
+temp_w_cph_mean
 temp_w_cph_mean_bestmod <- temp_w_cph_mean[[1]]$BestModel
 summary(temp_w_cph_mean_bestmod)
+summary(temp_w_cph_mean_bestmod)$rsq
 temp_w_cph_mean_survfit <- survfit(temp_w_cph_mean_bestmod)
 AIC(temp_w_cph_mean_bestmod)
 
@@ -507,15 +556,13 @@ plot(temp_w_cph_mean_survfit, xlab = "Day",
      ylab = "Estimated Probability of Not Departing")
 
 # get all windows
-clim_data <- clim_merged_clean |> filter(!ID %in% missing_clim)
-colnames(clim_data)[c(2, 6)] <- c('dep_date', 'climate')
 temp_w_cph_mean_allwin <- all_win(temp_w_cph_mean, clim_data, '-03-03', 'temp', 'cph', 'mean')
 
 # using slope as aggregate
 temp_w_cph_sl <- slidingwin(xvar = list(Temp = clim_w_clean$temp_2m),
                             cdate = clim_w_clean$date,
                             bdate = dep_w_clean2$spring_dep_new.x,
-                            baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry, data = dep_w_clean2), 
+                            baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
                             cinterval = "day",
                             cmissing = 'method1',
                             range = c(184, 0),
@@ -524,8 +571,11 @@ temp_w_cph_sl <- slidingwin(xvar = list(Temp = clim_w_clean$temp_2m),
                             func = "lin", 
                             spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
 
+# examine model
+temp_w_cph_sl
 temp_w_cph_sl_bestmod <- temp_w_cph_sl[[1]]$BestModel
 summary(temp_w_cph_sl_bestmod)
+summary(temp_w_cph_sl_bestmod)$rsq
 temp_w_cph_sl_survfit <- survfit(temp_w_cph_sl_bestmod)
 AIC(temp_w_cph_sl_bestmod)
 
@@ -536,6 +586,127 @@ plot(temp_w_cph_sl_survfit, xlab = "Day",
 # get all windows
 temp_w_cph_sl_allwin <- all_win(temp_w_cph_sl, clim_data, '-03-03', 'temp', 'cph', 'slope')
 
+# WINTERING WIND SPEED------------------------------------------------------------------------------------------------------------------
+# linear models
+# temperature sliding window using mean as aggregate and daily window
+set.seed(123)
+wind_w_win_mean <- slidingwin(xvar = list(Wind = clim_w_clean$wind_speed),
+                              k = 4,
+                              cdate = clim_w_clean$date,
+                              bdate = dep_w_clean2$spring_dep_new.x,
+                              baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_w_clean2),
+                              cinterval = "day",
+                              cmissing = 'method1',
+                              range = c(184, 0),
+                              type = "absolute", refday = c(03, 03),
+                              stat = "mean",
+                              func = "lin", 
+                              spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
+
+# examine model
+wind_w_win_mean
+wind_w_mean_bestmod <- wind_w_win_mean[[1]]$BestModel
+summary(wind_w_mean_bestmod)
+vif(wind_w_mean_bestmod)
+window_plot(wind_w_win_mean, 'Wind Speed', 'ancestry')
+
+# check assumptions
+plot(wind_w_mean_bestmod)
+hist(resid(wind_w_mean_bestmod))
+shapiro.test(resid(wind_w_mean_bestmod)) # non-normal
+bptest(yvar ~ transf_ancestry + dep_year + climate, data = wind_w_win_mean[[1]]$BestModelData)
+
+# get all windows
+clim_data <- clim_merged_clean |> filter(!ID %in% missing_clim)
+colnames(clim_data)[c(2, 16)] <- c('dep_date', 'climate')
+wind_w_mean_allwin <- all_win(wind_w_win_mean, clim_data, '-03-03', 'wind', 'linear', 'mean')
+
+# temperature sliding window using slope as aggregate
+set.seed(123)
+wind_w_win_sl <- slidingwin(xvar = list(Wind = clim_w_clean$wind_speed),
+                            k = 4,
+                            cdate = clim_w_clean$date,
+                            bdate = dep_w_clean2$spring_dep_new.x,
+                            baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
+                            cinterval = "day",
+                            cmissing = 'method1',
+                            range = c(184, 0),
+                            type = "absolute", refday = c(03, 03),
+                            stat = "slope",
+                            func = "lin", 
+                            spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
+
+# examine model
+wind_w_win_sl
+wind_w_sl_bestmod <- wind_w_win_sl[[1]]$BestModel
+summary(wind_w_sl_bestmod)
+vif(wind_w_sl_bestmod)
+window_plot(wind_w_win_sl, 'Wind Speed', 'ancestry')
+
+# check assumptions
+plot(wind_w_sl_bestmod)
+hist(resid(wind_w_sl_bestmod))
+shapiro.test(resid(wind_w_sl_bestmod))
+bptest(yvar ~ transf_ancestry + dep_year + climate, data = wind_w_win_sl[[1]]$BestModelData)
+
+# get all windows
+wind_w_sl_allwin <- all_win(wind_w_win_sl, clim_data, '-03-03', 'wind', 'linear', 'slope')
+
+# Cox proportional hazards models
+# using mean as aggregate
+wind_w_cph_mean <- slidingwin(xvar = list(Wind = clim_w_clean$wind_speed),
+                              cdate = clim_w_clean$date,
+                              bdate = dep_w_clean2$spring_dep_new.x,
+                              baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
+                              cinterval = "day",
+                              cmissing = 'method1',
+                              range = c(184, 0),
+                              type = "absolute", refday = c(03, 03),
+                              stat = "mean",
+                              func = "lin", 
+                              spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
+
+wind_w_cph_mean
+wind_w_cph_mean_bestmod <- wind_w_cph_mean[[1]]$BestModel
+summary(wind_w_cph_mean_bestmod)
+summary(wind_w_cph_mean_bestmod)$rsq
+wind_w_cph_mean_survfit <- survfit(wind_w_cph_mean_bestmod)
+AIC(wind_w_cph_mean_bestmod)
+
+# Kaplan-Meier curve
+plot(wind_w_cph_mean_survfit, xlab = "Day",
+     ylab = "Estimated Probability of Not Departing")
+
+# get all windows
+wind_w_cph_mean_allwin <- all_win(wind_w_cph_mean, clim_data, '-03-03', 'wind', 'cph', 'mean')
+
+# using slope as aggregate
+wind_w_cph_sl <- slidingwin(xvar = list(Wind = clim_w_clean$wind_speed),
+                            cdate = clim_w_clean$date,
+                            bdate = dep_w_clean2$spring_dep_new.x,
+                            baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
+                            cinterval = "day",
+                            cmissing = 'method1',
+                            range = c(184, 0),
+                            type = "absolute", refday = c(03, 03),
+                            stat = "slope",
+                            func = "lin", 
+                            spatial = list(dep_w_clean2$ID, clim_w_clean$ID))
+
+wind_w_cph_sl
+wind_w_cph_sl_bestmod <- wind_w_cph_sl[[1]]$BestModel
+summary(wind_w_cph_sl_bestmod)
+summary(wind_w_cph_sl_bestmod)$rsq
+wind_w_cph_sl_survfit <- survfit(wind_w_cph_sl_bestmod)
+AIC(wind_w_cph_sl_bestmod)
+
+# Kaplan-Meier curve
+plot(wind_w_cph_sl_survfit, xlab = "Day",
+     ylab = "Estimated Probability of Not Departing")
+
+# get all windows
+wind_w_cph_sl_allwin <- all_win(wind_w_cph_sl, clim_data, '-03-03', 'wind', 'cph', 'slope')
+
 # WINTERING SURFACE/ATMOSPHERIC PRESSURE--------------------------------------------------------------------------------------------------------------
 
 # linear models
@@ -545,7 +716,7 @@ press_w_win_mean <- slidingwin(xvar = list(Pressure = clim_w_clean$surf_pressure
                                k = 4,
                                cdate = clim_w_clean$date,
                                bdate = dep_w_clean2$spring_dep_new.x,
-                               baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry, data = dep_w_clean2), 
+                               baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
                                cinterval = "day",
                                cmissing = 'method1',
                                range = c(184, 0),
@@ -559,12 +730,18 @@ press_w_win_mean
 press_w_win_mean_bestmod <- press_w_win_mean[[1]]$BestModel
 summary(press_w_win_mean_bestmod)
 vif(press_w_win_mean_bestmod)
-window_plot(press_w_win_mean, 'Surface Pressure', NULL)
+window_plot(press_w_win_mean, 'Surface Pressure', 'ancestry')
 
 # check assumptions
 plot(press_w_win_mean_bestmod)
 hist(resid(press_w_win_mean_bestmod))
-shapiro.test(resid(press_w_win_mean_bestmod)) # non-normal
+shapiro.test(resid(press_w_win_mean_bestmod))
+bptest(yvar ~ transf_ancestry + dep_year + climate, data = press_w_win_mean[[1]]$BestModelData)
+
+# get all windows
+clim_data <- clim_merged_clean |> filter(!ID %in% missing_clim)
+colnames(clim_data)[c(2, 8)] <- c('dep_date', 'climate')
+press_w_mean_allwin <- all_win(press_w_win_mean, clim_data, '-03-03', 'pressure', 'linear', 'slope')
 
 # precipitation sliding window using slope as aggregate
 set.seed(123)
@@ -572,7 +749,7 @@ press_w_win_sl <- slidingwin(xvar = list(Pressure = clim_w_clean$surf_pressure),
                              k = 4,
                              cdate = clim_w_clean$date,
                              bdate = dep_w_clean2$spring_dep_new.x,
-                             baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry, data = dep_w_clean2), 
+                             baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
                              cinterval = "day",
                              cmissing = 'method1',
                              range = c(184, 0),
@@ -586,19 +763,23 @@ press_w_win_sl
 press_w_sl_bestmod <- press_w_win_sl[[1]]$BestModel
 summary(press_w_sl_bestmod)
 vif(press_w_sl_bestmod)
-window_plot(press_w_win_sl, 'Surface Pressure', NULL)
+window_plot(press_w_win_sl, 'Surface Pressure', 'ancestry')
 
 # check assumptions
 plot(press_w_sl_bestmod)
 hist(resid(press_w_sl_bestmod))
-shapiro.test(resid(press_w_sl_bestmod)) # non-normal
+shapiro.test(resid(press_w_sl_bestmod))
+bptest(yvar ~ transf_ancestry + dep_year + climate, data = press_w_win_sl[[1]]$BestModelData)
+
+# get all windows
+press_w_sl_allwin <- all_win(press_w_win_sl, clim_data, '-03-03', 'pressure', 'linear', 'slope')
 
 # Cox proportional hazards models
 # using mean as aggregate
 press_w_cph_mean <- slidingwin(xvar = list(Pressure = clim_w_clean$surf_pressure),
                                cdate = clim_w_clean$date,
                                bdate = dep_w_clean2$spring_dep_new.x,
-                               baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry, data = dep_w_clean2), 
+                               baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
                                cinterval = "day",
                                cmissing = 'method1',
                                range = c(184, 0),
@@ -611,6 +792,7 @@ press_w_cph_mean <- slidingwin(xvar = list(Pressure = clim_w_clean$surf_pressure
 press_w_cph_mean
 press_w_cph_mean_bestmod <- press_w_cph_mean[[1]]$BestModel
 summary(press_w_cph_mean_bestmod)
+summary(press_w_cph_mean_bestmod)$rsq
 press_w_cph_mean_survfit <- survfit(press_w_cph_mean_bestmod)
 AIC(press_w_cph_mean_bestmod)
 
@@ -625,7 +807,7 @@ press_w_cph_mean_allwin <- all_win(press_w_cph_mean, clim_data, '-03-03', 'press
 press_w_cph_sl <- slidingwin(xvar = list(Pressure = clim_w_clean$surf_pressure),
                              cdate = clim_w_clean$date,
                              bdate = dep_w_clean2$spring_dep_new.x,
-                             baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry, data = dep_w_clean2), 
+                             baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w_clean2))) ~ transf_ancestry + dep_year, data = dep_w_clean2), 
                              cinterval = "day",
                              cmissing = 'method1',
                              range = c(184, 0),
@@ -638,6 +820,7 @@ press_w_cph_sl <- slidingwin(xvar = list(Pressure = clim_w_clean$surf_pressure),
 press_w_cph_sl
 press_w_cph_sl_bestmod <- press_w_cph_sl[[1]]$BestModel
 summary(press_w_cph_sl_bestmod)
+summary(press_w_cph_sl_bestmod)$rsq
 press_w_cph_sl_survfit <- survfit(press_w_cph_sl_bestmod)
 AIC(press_w_cph_sl_bestmod)
 
@@ -656,7 +839,7 @@ ndvi_w_win_mean <- slidingwin(xvar = list(NDVI = ndvi_w$ndvi),
                               k = 4,
                               cdate = ndvi_w$date,
                               bdate = dep_w$spring_dep_new.x,
-                              baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry, data = dep_w), 
+                              baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_w), 
                               cinterval = "day",
                               cmissing = 'method1',
                               range = c(184, 0),
@@ -666,15 +849,22 @@ ndvi_w_win_mean <- slidingwin(xvar = list(NDVI = ndvi_w$ndvi),
                               spatial = list(dep_w$ID, ndvi_w$ID))
 
 # examine model
+ndvi_w_win_mean
 ndvi_w_mean_bestmod <- ndvi_w_win_mean[[1]]$BestModel
 summary(ndvi_w_mean_bestmod)
 vif(ndvi_w_mean_bestmod)
-window_plot(ndvi_w_win_mean, 'NDVI', NULL)
+window_plot(ndvi_w_win_mean, 'NDVI', 'ancestry')
 
 # check assumptions
 plot(ndvi_w_mean_bestmod)
 hist(resid(ndvi_w_mean_bestmod))
-shapiro.test(resid(ndvi_w_mean_bestmod)) # non-normal
+shapiro.test(resid(ndvi_w_mean_bestmod))
+bptest(yvar ~ transf_ancestry + dep_year + climate, data = ndvi_w_win_mean[[1]]$BestModelData)
+
+# get all windows
+ndvi_data <- ndvi_merged_clean
+colnames(ndvi_data)[c(2, 6)] <- c('dep_date', 'climate')
+ndvi_w_mean_allwin <- all_win(ndvi_w_win_mean, ndvi_data, '-03-03', 'ndvi', 'linear', 'mean')
 
 # temperature sliding window using slope as aggregate
 set.seed(123)
@@ -682,7 +872,7 @@ ndvi_w_win_sl <- slidingwin(xvar = list(NDVI = ndvi_w$ndvi),
                             k = 4,
                             cdate = ndvi_w$date,
                             bdate = dep_w$spring_dep_new.x,
-                            baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry, data = dep_w), 
+                            baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_w), 
                             cinterval = "day",
                             cmissing = 'method1',
                             range = c(184, 0),
@@ -692,10 +882,11 @@ ndvi_w_win_sl <- slidingwin(xvar = list(NDVI = ndvi_w$ndvi),
                             spatial = list(dep_w$ID, ndvi_w$ID))
 
 # examine model
+ndvi_w_win_sl
 ndvi_w_sl_bestmod <- ndvi_w_win_sl[[1]]$BestModel
 summary(ndvi_w_sl_bestmod)
 vif(ndvi_w_sl_bestmod)
-window_plot(ndvi_w_win_sl, 'NDVI', NULL)
+window_plot(ndvi_w_win_sl, 'NDVI', 'ancestry')
 
 # check assumptions
 plot(ndvi_w_sl_bestmod)
@@ -707,7 +898,7 @@ shapiro.test(resid(ndvi_w_sl_bestmod)) # non-normal
 ndvi_w_cph_mean <- slidingwin(xvar = list(NDVI = ndvi_w$ndvi),
                               cdate = ndvi_w$date,
                               bdate = dep_w$spring_dep_new.x,
-                              baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w))) ~ transf_ancestry, data = dep_w),
+                              baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w))) ~ transf_ancestry + dep_year, data = dep_w),
                               cinterval = "day",
                               cmissing = 'method1',
                               range = c(184, 0),
@@ -720,6 +911,7 @@ ndvi_w_cph_mean <- slidingwin(xvar = list(NDVI = ndvi_w$ndvi),
 ndvi_w_cph_mean
 ndvi_w_cph_mean_bestmod <- ndvi_w_cph_mean[[1]]$BestModel
 summary(ndvi_w_cph_mean_bestmod)
+summary(ndvi_w_cph_mean_bestmod)$rsq
 ndvi_w_cph_mean_survfit <- survfit(ndvi_w_cph_mean_bestmod)
 AIC(ndvi_w_cph_mean_bestmod)
 
@@ -728,13 +920,13 @@ plot(ndvi_w_cph_mean_survfit, xlab = "Day",
      ylab = "Estimated Probability of Not Departing")
 
 # get all windows
-ndvi_w_cph_mean_allwin <- all_win(ndvi_w_cph_mean, clim_data, '-03-03', 'ndvi', 'cph', 'mean')
+ndvi_w_cph_mean_allwin <- all_win(ndvi_w_cph_mean, ndvi_data, '-03-03', 'ndvi', 'cph', 'mean')
 
 # using slope as aggregate
 ndvi_w_cph_sl <- slidingwin(xvar = list(NDVI = ndvi_w$ndvi),
                             cdate = ndvi_w$date,
                             bdate = dep_w$spring_dep_new.x,
-                            baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w))) ~ transf_ancestry, data = dep_w), # I'm confused on how to incorporate release site as a covariate...
+                            baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w))) ~ transf_ancestry + dep_year, data = dep_w),
                             cinterval = "day",
                             cmissing = 'method1',
                             range = c(184, 0),
@@ -747,6 +939,7 @@ ndvi_w_cph_sl <- slidingwin(xvar = list(NDVI = ndvi_w$ndvi),
 ndvi_w_cph_sl
 ndvi_w_cph_sl_bestmod <- ndvi_w_cph_sl[[1]]$BestModel
 summary(ndvi_w_cph_sl_bestmod)
+summary(ndvi_w_cph_sl_bestmod)$rsq
 ndvi_w_cph_sl_survfit <- survfit(ndvi_w_cph_sl_bestmod)
 AIC(ndvi_w_cph_sl_bestmod)
 
@@ -755,7 +948,7 @@ plot(ndvi_w_cph_sl_survfit, xlab = "Day",
      ylab = "Estimated Probability of Not Departing")
 
 # get all windows
-ndvi_w_cph_sl_allwin <- all_win(ndvi_w_cph_sl, clim_data, '-03-03', 'ndvi', 'cph', 'slope')
+ndvi_w_cph_sl_allwin <- all_win(ndvi_w_cph_sl, ndvi_data, '-03-03', 'ndvi', 'cph', 'slope')
 
 # WINTERING DAYLENGTH-----------------------------------------------------------
 # get rid of any rows missing lat or date
@@ -806,7 +999,7 @@ daylen_w_win_mean <- slidingwin(xvar = list(Daylength = daylen_w$daylen),
                                 k = 4,
                                 cdate = daylen_w$date,
                                 bdate = dep_daylen_w$spring_dep_new.x,
-                                baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry, data = dep_daylen_w),
+                                baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_daylen_w),
                                 cinterval = "day",
                                 cmissing = 'method2',
                                 range = c(184, 0),
@@ -816,10 +1009,11 @@ daylen_w_win_mean <- slidingwin(xvar = list(Daylength = daylen_w$daylen),
                                 spatial = list(dep_daylen_w$ID, daylen_w$ID))
 
 # examine model
+daylen_w_win_mean
 daylen_w_mean_bestmod <- daylen_w_win_mean[[1]]$BestModel
 summary(daylen_w_mean_bestmod)
 vif(daylen_w_mean_bestmod)
-window_plot(daylen_w_win_mean, 'Daylength', NULL)
+window_plot(daylen_w_win_mean, 'Daylength', 'ancestry')
 
 # check assumptions
 plot(daylen_w_mean_bestmod)
@@ -832,7 +1026,7 @@ daylen_w_win_sl <- slidingwin(xvar = list(Daylength = daylen_w$daylen),
                               k = 4,
                               cdate = daylen_w$date,
                               bdate = dep_daylen_w$spring_dep_new.x,
-                              baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry, data = dep_daylen_w),
+                              baseline = lm(yday(spring_dep_new.x) ~ transf_ancestry + dep_year, data = dep_daylen_w),
                               cinterval = "day",
                               cmissing = 'method2',
                               range = c(184, 0),
@@ -842,22 +1036,23 @@ daylen_w_win_sl <- slidingwin(xvar = list(Daylength = daylen_w$daylen),
                               spatial = list(dep_daylen_w$ID, daylen_w$ID))
 
 # examine model
+daylen_w_win_sl
 daylen_w_sl_bestmod <- daylen_w_win_sl[[1]]$BestModel
 summary(daylen_w_sl_bestmod)
 vif(daylen_w_sl_bestmod)
-window_plot(daylen_w_win_sl, 'Daylength', NULL)
+window_plot(daylen_w_win_sl, 'Daylength', 'ancestry')
 
 # check assumptions
 plot(daylen_w_sl_bestmod)
 hist(resid(daylen_w_sl_bestmod))
-shapiro.test(resid(daylen_w_sl_bestmod)) # non-normal
+shapiro.test(resid(daylen_w_sl_bestmod))
 
 # Cox proportional hazards models
 # using mean as aggregate
 daylen_w_cph_mean <- slidingwin(xvar = list(Daylength = daylen_w$daylen),
                                 cdate = daylen_w$date,
                                 bdate = dep_daylen_w$spring_dep_new.x,
-                                baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w))) ~ transf_ancestry, data = dep_daylen_w),
+                                baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w))) ~ transf_ancestry + dep_year, data = dep_daylen_w),
                                 cinterval = "day",
                                 cmissing = 'method1',
                                 range = c(184, 0),
@@ -870,6 +1065,7 @@ daylen_w_cph_mean <- slidingwin(xvar = list(Daylength = daylen_w$daylen),
 daylen_w_cph_mean
 daylen_w_cph_mean_bestmod <- daylen_w_cph_mean[[1]]$BestModel
 summary(daylen_w_cph_mean_bestmod)
+summary(daylen_w_cph_mean_bestmod)$rsq
 daylen_w_cph_mean_survfit <- survfit(daylen_w_cph_mean_bestmod)
 AIC(daylen_w_cph_mean_bestmod)
 
@@ -878,13 +1074,13 @@ plot(daylen_w_cph_mean_survfit, xlab = "Day",
      ylab = "Estimated Probability of Not Departing")
 
 # get all windows
-daylen_w_cph_mean_allwin <- all_win(daylen_w_cph_mean, clim_data, '-03-03', 'daylen', 'cph', 'mean')
+daylen_w_cph_mean_allwin <- all_win(daylen_w_cph_mean, daylen_data, '-03-03', 'daylen', 'cph', 'mean')
 
 # using slope as aggregate
 daylen_w_cph_sl <- slidingwin(xvar = list(Daylength = daylen_w$daylen),
                               cdate = daylen_w$date,
                               bdate = dep_daylen_w$spring_dep_new.x,
-                              baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w))) ~ transf_ancestry, data = dep_daylen_w),
+                              baseline = coxph(Surv(yday(spring_dep_new.x), rep(1, nrow(dep_w))) ~ transf_ancestry + dep_year, data = dep_daylen_w),
                               cinterval = "day",
                               cmissing = 'method1',
                               range = c(184, 0),
@@ -897,6 +1093,7 @@ daylen_w_cph_sl <- slidingwin(xvar = list(Daylength = daylen_w$daylen),
 daylen_w_cph_sl
 daylen_w_cph_sl_bestmod <- daylen_w_cph_sl[[1]]$BestModel
 summary(daylen_w_cph_sl_bestmod)
+summary(daylen_w_cph_sl_bestmod)$rsq
 daylen_w_cph_sl_survfit <- survfit(daylen_w_cph_sl_bestmod)
 AIC(daylen_w_cph_sl_bestmod)
 
@@ -905,4 +1102,4 @@ plot(daylen_w_cph_sl_survfit, xlab = "Day",
      ylab = "Estimated Probability of Not Departing")
 
 # get all windows
-daylen_w_cph_sl_allwin <- all_win(daylen_w_cph_sl, clim_data, '-03-03', 'daylen', 'cph', 'slope')
+daylen_w_cph_sl_allwin <- all_win(daylen_w_cph_sl, daylen_data, '-03-03', 'daylen', 'cph', 'slope')
