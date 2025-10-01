@@ -235,8 +235,6 @@ all_win <- function(win_obj, clim_data, varname, model, agg, dep_year = TRUE) {
 window_plot <- function(window, varname, type) {
   # extract best data for plots
   bestdata <- window[[1]]$BestModelData
-  bestdata$yvar <- as.Date(bestdata$yvar, origin = '1970-01-01')
-  bestdata$yvar |> yday()
   
   if (type == 'ancestry') {
     plot <- ggplot(bestdata, aes(x = yvar, y = climate, color = transf_ancestry)) + 
