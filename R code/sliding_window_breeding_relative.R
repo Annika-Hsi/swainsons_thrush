@@ -6,7 +6,7 @@
 # Engine corresponding to Swainson's Thrush observations from the wintering 
 # season only
 # NOTES: have to remerge with original LLG dataset to get release site as covariate;
-# STILL NEED TO ADD IN RANDOMIZATION FOR VARIABLES BESIDES DAYLENGTH
+# STILL NEED TO ADD IN RANDOMIZATION FOR VARIABLES BESIDES DAYLEN
 
 # load packages
 library(dplyr)
@@ -21,7 +21,8 @@ library(MuMIn)
 library(survival)
 library(lmtest)
 library(coxme)
-
+library(adjustedCurves)
+library(riskRegression)
 # SET UP------------------------------------------------------------------------------------------------------------------------------------------------
 # WINTERING
 # load data
@@ -233,6 +234,7 @@ best_daylen_data$dep_year <- dep_daylen_b$dep_year
 best_daylen_data$event <- 1
 best_daylen_data$yvar <- as.numeric(best_daylen_data$yvar)[1:nrow(best_daylen_data)]
 best_daylen_data$ID <- dep_daylen_b$ID
+levels(best_daylen_data$cat_ancestry) <- c('pure_coastal', 'pure_inland', 'coastal_BC', 'inland_BC', 'F1', 'later')
 daylen_refit_mod <- coxme(Surv(yvar, event) ~ cat_ancestry + age + (1|dep_year) + climate, data = best_daylen_data)
 
 # examine refit model
@@ -274,6 +276,7 @@ best_precip_data$dep_year <- dep_b_clean2$dep_year
 best_precip_data$event <- 1
 best_precip_data$yvar <- as.numeric(best_precip_data$yvar)[1:nrow(best_precip_data)]
 best_precip_data$ID <- dep_b_clean2$ID
+levels(best_precip_data$cat_ancestry) <- c('pure_coastal', 'pure_inland', 'coastal_BC', 'inland_BC', 'F1', 'later')
 precip_refit_mod <- coxme(Surv(yvar, event) ~ cat_ancestry + age + (1|dep_year) + climate, data = best_precip_data)
 
 # examine refit model
@@ -282,6 +285,16 @@ AIC(precip_refit_mod)
 
 # plot data to get general sense
 ggplot(best_precip_data, aes(x = yvar, y = climate)) + geom_point()
+
+# adjusted survival curves
+precip_refit_mod1 <- coxph(Surv(yvar, event) ~ cat_ancestry + age + climate, data = best_precip_data, x = TRUE)
+adjsurv <- adjustedsurv(data=best_precip_data,
+                        variable="cat_ancestry",
+                        ev_time="yvar",
+                        event="event",
+                        method="direct",
+                        outcome_model=precip_refit_mod1)
+plot(adjsurv)
 
 # WINTERING TEMPERATURE--------------------------------------------------------------------------------------------------------------
 
@@ -315,6 +328,7 @@ best_temp_data$dep_year <- dep_b_clean2$dep_year
 best_temp_data$event <- 1
 best_temp_data$yvar <- as.numeric(best_temp_data$yvar)[1:nrow(best_temp_data)]
 best_temp_data$ID <- dep_b_clean2$ID
+levels(best_temp_data$cat_ancestry) <- c('pure_coastal', 'pure_inland', 'coastal_BC', 'inland_BC', 'F1', 'later')
 temp_refit_mod <- coxme(Surv(yvar, event) ~ cat_ancestry + age + (1|dep_year) + climate, data = best_temp_data)
 
 # examine refit model
@@ -324,6 +338,15 @@ AIC(temp_refit_mod)
 # plot data to get general sense
 ggplot(best_temp_data, aes(x = yvar, y = climate)) + geom_point()
 
+# adjusted survival curves
+temp_refit_mod1 <- coxph(Surv(yvar, event) ~ cat_ancestry + age + climate, data = best_temp_data, x = TRUE)
+adjsurv <- adjustedsurv(data=best_temp_data,
+                        variable="cat_ancestry",
+                        ev_time="yvar",
+                        event="event",
+                        method="direct",
+                        outcome_model=temp_refit_mod1)
+plot(adjsurv)
 # WINTERING SURFACE PRESSURE--------------------------------------------------------------------------------------------------------------
 
 # weekly Coxph
@@ -355,6 +378,7 @@ best_press_data$dep_year <- dep_b_clean2$dep_year
 best_press_data$event <- 1
 best_press_data$yvar <- as.numeric(best_press_data$yvar)[1:nrow(best_press_data)]
 best_press_data$ID <- dep_b_clean2$ID
+levels(best_press_data$cat_ancestry) <- c('pure_coastal', 'pure_inland', 'coastal_BC', 'inland_BC', 'F1', 'later')
 press_refit_mod <- coxme(Surv(yvar, event) ~ cat_ancestry + age + (1|dep_year) + climate, data = best_press_data)
 
 # examine refit model
@@ -364,6 +388,15 @@ AIC(press_refit_mod)
 # plot data to get general sense
 ggplot(best_press_data, aes(x = yvar, y = climate)) + geom_point()
 
+# adjusted survival curves
+press_refit_mod1 <- coxph(Surv(yvar, event) ~ cat_ancestry + age + climate, data = best_press_data, x = TRUE)
+adjsurv <- adjustedsurv(data=best_press_data,
+                        variable="cat_ancestry",
+                        ev_time="yvar",
+                        event="event",
+                        method="direct",
+                        outcome_model=press_refit_mod1)
+plot(adjsurv)
 # WINTERING WIND SPEED--------------------------------------------------------------------------------------------------------------
 
 # weekly Coxph
@@ -379,6 +412,7 @@ wind_b_cph_w <- slidingwin(xvar = list(Wind = clim_b_clean$wind_speed),
                            func = c("lin", "quad"), 
                            spatial = list(dep_b_clean2$ID, clim_b_clean$ID))
 
+# examine model
 # examine best model
 wind_b_cph_w$combos
 m <- which(wind_b_cph_w$combos$DeltaAICc == min(wind_b_cph_w$combos$DeltaAICc))
@@ -395,6 +429,7 @@ best_wind_data$dep_year <- dep_b_clean2$dep_year
 best_wind_data$event <- 1
 best_wind_data$yvar <- as.numeric(best_wind_data$yvar)[1:nrow(best_wind_data)]
 best_wind_data$ID <- dep_b_clean2$ID
+levels(best_wind_data$cat_ancestry) <- c('pure_coastal', 'pure_inland', 'coastal_BC', 'inland_BC', 'F1', 'later')
 wind_refit_mod <- coxme(Surv(yvar, event) ~ cat_ancestry + age + (1|dep_year) + climate + `I(climate^2)`, data = best_wind_data)
 
 # examine refit model
@@ -404,7 +439,15 @@ AIC(wind_refit_mod)
 # plot data to get general sense
 ggplot(best_wind_data, aes(x = yvar, y = climate)) + geom_point()
 
-
+# adjusted survival curves
+wind_refit_mod1 <- coxph(Surv(yvar, event) ~ cat_ancestry + age + climate + `I(climate^2)`, data = best_wind_data, x = TRUE)
+adjsurv <- adjustedsurv(data=best_wind_data,
+                        variable="cat_ancestry",
+                        ev_time="yvar",
+                        event="event",
+                        method="direct",
+                        outcome_model=wind_refit_mod1)
+plot(adjsurv)
 # WINTERING NDVI-------------------------------------------------------------------------------------------------------------
 
 # weekly Coxph
@@ -436,6 +479,7 @@ best_ndvi_data$dep_year <- dep_b$dep_year
 best_ndvi_data$event <- 1
 best_ndvi_data$yvar <- as.numeric(best_ndvi_data$yvar)[1:nrow(best_ndvi_data)]
 best_ndvi_data$ID <- dep_b$ID
+levels(best_ndvi_data$cat_ancestry) <- c('pure_coastal', 'pure_inland', 'coastal_BC', 'inland_BC', 'F1', 'later')
 ndvi_refit_mod <- coxme(Surv(yvar, event) ~ cat_ancestry + age + (1|dep_year) + climate, data = best_ndvi_data)
 
 # examine refit model
@@ -445,6 +489,15 @@ AIC(ndvi_refit_mod)
 # plot data to get general sense
 ggplot(best_ndvi_data, aes(x = yvar, y = climate)) + geom_point()
 
+# adjusted survival curves
+ndvi_refit_mod1 <- coxph(Surv(yvar, event) ~ cat_ancestry + age + climate, data = best_ndvi_data, x = TRUE)
+adjsurv <- adjustedsurv(data=best_ndvi_data,
+                        variable="cat_ancestry",
+                        ev_time="yvar",
+                        event="event",
+                        method="direct",
+                        outcome_model=ndvi_refit_mod1)
+plot(adjsurv)
 # SAVING DATA------------------------------------------------------------------------------------------------------------
 rename_cols <- function(best_data, best_info) {
   colnames(best_data)[which(colnames(best_data) == 'climate')] <- paste0(best_info$climate, '_', best_info$WindowOpen, '_', best_info$WindowClose)
